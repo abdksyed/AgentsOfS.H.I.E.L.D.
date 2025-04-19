@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Click Recorder</title>
+    <link rel="stylesheet" type="text/css" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <span>Status:</span>
+            <span id="status-indicator" class="indicator stopped"></span>
+        </div>
+        <textarea id="recorded-clicks" rows="10" readonly placeholder="Recorded clicks will appear here..."></textarea>
+        <div class="controls">
+            <button id="start-btn">Start New</button>
+            <button id="resume-btn" disabled>Resume</button>
+            <button id="stop-btn" disabled>Stop</button>
+            <button id="clear-btn" disabled>Clear</button>
+            <button id="download-btn" disabled>Download</button>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html> 

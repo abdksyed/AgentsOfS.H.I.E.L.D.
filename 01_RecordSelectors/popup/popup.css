@@ -1,0 +1,64 @@
+body {
+    font-family: sans-serif;
+    width: 400px; /* Increased width for buttons */
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px; /* Spacing between elements */
+}
+
+.header {
+    display: flex;
+    justify-content: flex-end; /* Align status to the right */
+    align-items: center;
+    gap: 5px;
+}
+
+.indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.indicator.stopped {
+    background-color: red;
+}
+
+.indicator.recording {
+    background-color: limegreen;
+}
+
+textarea {
+    width: 100%;
+    resize: vertical; /* Allow vertical resize only */
+    min-height: 100px;
+    box-sizing: border-box; /* Include padding/border in width */
+}
+
+.controls {
+    display: flex;
+    justify-content: space-between; /* Distribute buttons evenly */
+    gap: 5px; /* Spacing between buttons */
+}
+
+button {
+    padding: 8px 12px;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #f0f0f0;
+}
+
+button:hover {
+    background-color: #e0e0e0;
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+} 
