@@ -111,8 +111,3 @@ button:disabled {
      padding-top: 10px;
      margin-top: 5px;
 }
-
-.click-controls button,
-.screen-controls button {
-   /* ... existing button styles ... */
-} 

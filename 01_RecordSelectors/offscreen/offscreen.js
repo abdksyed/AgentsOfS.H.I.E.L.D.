@@ -15,6 +15,17 @@ chrome.runtime.onMessage.addListener(async (message) => {
     case 'stop-recording':
       stopRecording();
       break;
+    case 'revoke-blob-url':
+      console.log('[Offscreen] Received request to revoke Blob URL:', message.url);
+      try {
+        URL.revokeObjectURL(message.url);
+        console.log('[Offscreen] Blob URL revoked successfully:', message.url);
+        // Optionally, close the offscreen document after revoking
+        // window.close(); // Consider if this is the right place
+      } catch (e) {
+        console.error('[Offscreen] Error revoking Blob URL:', e);
+      }
+      break;
     default:
       console.warn(`Unexpected message type received: ${message.type}`);
   }
@@ -32,15 +43,18 @@ async function startRecording() {
     video: true  // Request video
   });
 
-  // Continue stream if recording stops unexpectedly.
+  // Handle the stream becoming inactive (e.g., user stops sharing)
   media.addEventListener('inactive', () => {
-    console.log('[Offscreen] Media stream became inactive event fired.');
-    // Check if the recorder is still recording before trying to stop
+    console.log('[Offscreen] Media stream became inactive.');
+    // If the recorder is still in the 'recording' state when the stream becomes inactive,
+    // attempt to stop it gracefully to finalize the recording.
     if (recorder?.state === 'recording') {
-        console.warn('[Offscreen] Stream inactive - stopping recorder.');
-        stopRecording()?.catch(e => console.error("[Offscreen] Error stopping recording after stream inactive:", e));
+        console.log('[Offscreen] Stream inactive while recorder was active. Attempting to stop recorder.');
+        // Call stopRecording and handle potential errors during the stop process.
+        stopRecording().catch(e => console.error("[Offscreen] Error stopping recording after stream inactive:", e));
     } else {
-        console.log('[Offscreen] Stream inactive, but recorder is not in recording state (' + recorder?.state + '). Not stopping again.');
+        // Log if the stream became inactive but the recorder wasn't in a recording state.
+        console.log(`[Offscreen] Stream inactive, recorder state is already '${recorder?.state}'. No stop action needed.`);
     }
   });
 
@@ -103,4 +117,4 @@ async function stopRecording() {
   } else {
      console.warn(`[Offscreen] No active recording to stop. State: ${recorder?.state}`);
   }
-} 
+}

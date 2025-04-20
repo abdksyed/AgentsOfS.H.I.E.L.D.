@@ -15,10 +15,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Combined control
     const startBothBtn = document.getElementById('start-both-btn');
+    const stopBothBtn = document.getElementById('stop-both-btn'); // Added Stop Both
 
     // Function to update UI elements based on state
     // Now includes screen recording state
     function updateUI(isRecording, recordedData, activeTabId, isScreenRecording, videoUrl) {
+        // Add log to check received videoUrl
+        console.log('[Popup] updateUI called. isScreenRecording:', isScreenRecording, 'videoUrl:', videoUrl);
+
         const dataArray = Array.isArray(recordedData) ? recordedData : [];
 
         recordedClicksTextarea.value = dataArray.map(item => {
@@ -34,22 +38,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }).join('\n');
 
+        // Update click recording status indicator
         statusIndicator.className = `indicator ${isRecording ? 'recording' : 'stopped'}`;
+        // Update screen recording status indicator
+        screenStatusIndicator.className = `indicator ${isScreenRecording ? 'recording' : 'stopped'}`;
 
         // --- Update Button States ---
         const clickRecordingActive = isRecording;
-        const clickRecordingPaused = !isRecording && activeTabId !== null;
         const screenRecordingActive = isScreenRecording;
         const canStartSomething = !clickRecordingActive && !screenRecordingActive;
+        const isAnythingRecording = clickRecordingActive || screenRecordingActive;
 
         startBothBtn.disabled = !canStartSomething;
-        startBtn.disabled = !canStartSomething; // Start New Events also disabled if screen rec is active
-        resumeBtn.disabled = isRecording || activeTabId === null || screenRecordingActive; // Can't resume clicks if screen rec active
+        stopBothBtn.disabled = !isAnythingRecording; // Enabled if either is recording
+        
+        startBtn.disabled = !canStartSomething || screenRecordingActive; // Also disable if screen rec active
+        resumeBtn.disabled = clickRecordingActive || activeTabId === null || screenRecordingActive; 
         stopBtn.disabled = !clickRecordingActive;
-        clearBtn.disabled = (dataArray.length === 0 && activeTabId === null) || screenRecordingActive; // Disable clear if screen rec active
+        clearBtn.disabled = (dataArray.length === 0 && activeTabId === null) || isAnythingRecording; // Disable clear if anything is recording
         downloadBtn.disabled = dataArray.length === 0;
 
-        startScreenBtn.disabled = !canStartSomething;
+        startScreenBtn.disabled = !canStartSomething || clickRecordingActive; // Also disable if click rec active
         stopScreenBtn.disabled = !screenRecordingActive;
         downloadVideoBtn.disabled = !videoUrl; 
 
@@ -139,14 +148,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             if (response && response.url) {
+                const videoUrl = response.url;
                 // Use the background-provided Blob URL to trigger download
                 const a = document.createElement('a');
-                a.href = response.url;
+                a.href = videoUrl;
                 a.download = 'recorded_screen.webm'; // Set filename
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                // Background script should handle revoking the URL after a delay
+                
+                // Revoke the Blob URL after the download link is clicked
+                console.log("[Popup] Revoking Blob URL:", videoUrl);
+                try {
+                     URL.revokeObjectURL(videoUrl);
+                } catch (e) {
+                    console.error("[Popup] Error revoking Blob URL:", e);
+                }
+                
+                // Send message to background to clear its reference (optional but good practice)
+                chrome.runtime.sendMessage({ action: 'clearRecordedVideoUrl' }); 
+
             } else {
                 console.error("No video URL received for download.");
             }
@@ -161,6 +182,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("[Popup] Error sending start both message:", chrome.runtime.lastError.message);
              }
              // UI update handled by background
+        });
+    });
+
+    // Added Stop Both Listener
+    stopBothBtn.addEventListener('click', () => {
+        console.log("[Popup] Stop Both button clicked.");
+        chrome.runtime.sendMessage({ action: 'stopBothRecordings' }, response => {
+            if (chrome.runtime.lastError) {
+                console.error("[Popup] Error sending stop both message:", chrome.runtime.lastError.message);
+            }
+            // UI update handled by background
         });
     });
 
@@ -205,7 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 message.recordedData, 
                 message.activeTabId, 
                 message.isScreenRecording, // Added
-                message.recordedVideoUrl // Added
+                message.recordedVideoBlobUrl // Corrected property name
             ); 
         }
     });
@@ -232,4 +264,4 @@ document.addEventListener('DOMContentLoaded', () => {
             updateUI(false, [], null, false, null);
         }
     });
-}); 
+});

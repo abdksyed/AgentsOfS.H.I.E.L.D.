@@ -8,14 +8,21 @@
     <div class="container">
         <div class="header">
             <span>Clicks:</span>
-            <span id="status-indicator" class="indicator stopped"></span>
+            <span id="status-indicator"
+                  class="indicator stopped"
+                  role="status"
+                  aria-label="Clicks recording stopped"></span>
             <span class="spacer"></span>
             <span>Screen:</span>
-            <span id="screen-status-indicator" class="indicator stopped"></span>
+            <span id="screen-status-indicator"
+                  class="indicator stopped"
+                  role="status"
+                  aria-label="Screen recording stopped"></span>
         </div>
         <textarea id="recorded-clicks" rows="8" readonly placeholder="Recorded events will appear here..."></textarea>
         <div class="controls combined-controls">
             <button id="start-both-btn">Start Both</button>
+            <button id="stop-both-btn" disabled>Stop Both</button>
         </div>
         <div class="controls click-controls">
             <label>Click Recording:</label>
@@ -34,4 +41,4 @@
     </div>
     <script src="popup.js"></script>
 </body>
-</html> 
+</html>

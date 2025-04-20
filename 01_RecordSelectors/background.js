@@ -46,15 +46,13 @@ let creatingOffscreenDocument = null; // Promise to prevent race conditions
 async function hasOffscreenDocument(path) {
     // Check all existing contexts for a match.
     const offscreenUrl = chrome.runtime.getURL(path);
-    // Use the Chrome Clients API to check for the offscreen document
-    if (typeof clients === 'undefined') { // clients API might not be available in all contexts immediately
-       await import('./clients-api-polyfill.js'); // Simple polyfill might be needed or use chrome.runtime.getContexts
-    }
-    const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [offscreenUrl] });
-    return !!contexts && contexts.length > 0;
-    // Alternative using Clients API (requires polyfill or careful context checks):
-    // const matchedClients = await clients.matchAll(); 
-    // return matchedClients.some(c => c.url === offscreenUrl);
+    // Use chrome.runtime.getContexts() to check for the offscreen document.
+    // This is the recommended approach in Manifest V3.
+    const contexts = await chrome.runtime.getContexts({ 
+        contextTypes: ['OFFSCREEN_DOCUMENT'], 
+        documentUrls: [offscreenUrl] 
+    });
+    return contexts && contexts.length > 0;
 }
 
 async function setupOffscreenDocument(path) {
@@ -154,6 +152,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 // Attempt to stop anything that might have started
                 if (isRecording) stopClickRecordingInternal();
                 if (isScreenRecording) stopScreenRecording(); 
+                sendResponse({ success: false, error: err.message });
+            });
+    }
+    // --- Stop Both Action ---
+    else if (message.action === 'stopBothRecordings') {
+        needsAsyncResponse = true; // Needs async for screen recording stop
+        console.log("[Background] Received 'stopBothRecordings' action message.");
+        // Stop click recording first (synchronous parts)
+        stopClickRecordingInternal();
+        // Then stop screen recording (asynchronous)
+        stopScreenRecording()
+            .then(() => {
+                console.log("[Background] Both recordings stopped.");
+                sendResponse({ success: true });
+            })
+            .catch(err => {
+                console.error("[Background] Error stopping both recordings:", err);
                 sendResponse({ success: false, error: err.message });
             });
     }
@@ -267,26 +282,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === 'getRecordedVideoUrl') {
         console.log("[Background] Received 'getRecordedVideoUrl' action message.");
         sendResponse({ url: recordedVideoBlobUrl });
-        // Revoke URL after a short delay to allow download to start
-        if (recordedVideoBlobUrl) {
-            const urlToRevoke = recordedVideoBlobUrl; // Capture the URL
-            recordedVideoBlobUrl = null; // Clear the state immediately so button disables
-            updatePopupUI(); // Update UI immediately to disable download button
-
-            setTimeout(() => {
-                console.log("[Background] Attempting to revoke Blob URL:", urlToRevoke);
-                try {
-                    // Use self.URL for service worker context
-                    self.URL.revokeObjectURL(urlToRevoke); 
-                    console.log("[Background] Blob URL revoked successfully.");
-                } catch (revokeError) {
-                     console.error("[Background] Error revoking Blob URL:", revokeError);
-                }
-                // Now close the offscreen document after revoking
-                 closeOffscreenDocument(); 
-            }, 5000); // 5 second delay
-        }
-    } 
+        // Revocation is now handled by the popup.
+    } else if (message.action === 'clearRecordedVideoUrl') {
+         console.log("[Background] Received 'clearRecordedVideoUrl' message from popup.");
+         if (recordedVideoBlobUrl) {
+             // The popup should have already revoked, this is just clearing the reference
+             recordedVideoBlobUrl = null;
+             // We might still want to ensure the offscreen doc is closed if it wasn't already
+             closeOffscreenDocument();
+             updatePopupUI(); // Ensure UI reflects the cleared state
+         } 
+    }
     // --- Message from Offscreen Document --- 
     else if (message.target === 'background' && message.type === 'recording-stopped') {
         console.log("[Background] Received 'recording-stopped' message from offscreen with URL:", message.url);
@@ -335,13 +341,17 @@ async function startClickRecordingInternal(requestingTabId) {
         throw new Error("No active tab for click recording");
     }
     
-    // Check if screen recording is already active for a different tab
-    if (isScreenRecording && screenRecordingTabId && screenRecordingTabId !== tabs[0].id) {
-        console.warn("[Background] Cannot start click recording on this tab because screen recording is active on another tab.");
-        throw new Error("Screen recording active on another tab");
+    const targetTabId = tabs[0].id;
+    
+    // Check if screen recording is already active on a *different* tab.
+    if (isScreenRecording && screenRecordingTabId && screenRecordingTabId !== targetTabId) {
+         console.warn(`[Background] Cannot start click recording on tab ${targetTabId} because screen recording is active on a different tab (${screenRecordingTabId}).`);
+         throw new Error("Screen recording active on another tab");
     }
 
-    activeTabId = tabs[0].id;
+    // Proceed if no screen recording, or if screen recording is on the *same* tab.
+    console.log(`[Background] Proceeding with click recording start for tab ${targetTabId}.`);
+    activeTabId = targetTabId;
     isRecording = true;
     recordedData = []; // Start always clears previous data
     await saveState();
@@ -396,12 +406,16 @@ async function stopScreenRecording() {
         return;
     }
     console.log("[Background] Sending 'stop-recording' message to offscreen.");
+    // Update state immediately for better UI feedback (disable stop button)
+    isScreenRecording = false;
+    updatePopupUI();
+
     // Send message to the offscreen document to stop recording
     await chrome.runtime.sendMessage({
         type: 'stop-recording',
         target: 'offscreen'
     });
-    // State is updated when 'recording-stopped' message is received back
+    // Final state (including video URL) is updated when 'recording-stopped' message is received back
 }
 
 // --- Tab Management for Persistence ---
@@ -440,4 +454,4 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
         saveState();
         updatePopupUI(); // Update popup if it's open
     }
-}); 
+});
