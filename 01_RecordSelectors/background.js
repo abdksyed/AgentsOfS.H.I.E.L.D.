@@ -5,7 +5,8 @@ let activeTabId = null;
 // State for screen recording
 let isScreenRecording = false;
 let screenRecordingTabId = null; // Tab being screen recorded
-let recordedVideoBlobUrl = null; // URL to the recorded video blob
+let recordedVideoUrl = null; // Standardized name
+let screenRecordingCleanupTimer = null; // Timer ID for cleanup
 
 // --- Storage Functions ---
 async function loadState() {
@@ -118,14 +119,14 @@ async function sendMessageToContentScript(tabId, message) {
 
 function updatePopupUI() {
     // Add log to see what state is being sent
-    console.log("[Background] Updating Popup UI with state:", { isRecording, activeTabId, isScreenRecording, recordedVideoBlobUrl });
+    console.log("[Background] Updating Popup UI with state:", { isRecording, activeTabId, isScreenRecording, recordedVideoUrl });
     sendMessageToPopup({ 
         action: 'updatePopup', 
         isRecording,
         recordedData,
         activeTabId,
         isScreenRecording,
-        recordedVideoBlobUrl
+        recordedVideoUrl
     });
 }
 
@@ -220,7 +221,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             recordedData, 
             activeTabId, 
             isScreenRecording, 
-            recordedVideoUrl: recordedVideoBlobUrl 
+            recordedVideoUrl
         });
     } else if (message.action === 'getRecordedData') {
         // Send the recorded data for download
@@ -281,36 +282,65 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
          });
     } else if (message.action === 'getRecordedVideoUrl') {
         console.log("[Background] Received 'getRecordedVideoUrl' action message.");
-        sendResponse({ url: recordedVideoBlobUrl });
+        sendResponse({ url: recordedVideoUrl });
         // Revocation is now handled by the popup.
     } else if (message.action === 'clearRecordedVideoUrl') {
          console.log("[Background] Received 'clearRecordedVideoUrl' message from popup.");
-         if (recordedVideoBlobUrl) {
-             // The popup should have already revoked, this is just clearing the reference
-             recordedVideoBlobUrl = null;
-             // We might still want to ensure the offscreen doc is closed if it wasn't already
+         // Clear any pending cleanup timer first
+         if (screenRecordingCleanupTimer) {
+             console.log("[Background] Clearing cleanup timer:", screenRecordingCleanupTimer);
+             clearTimeout(screenRecordingCleanupTimer);
+             screenRecordingCleanupTimer = null;
+         }
+         if (recordedVideoUrl) {
+             // Popup should have revoked, just clearing reference
+             console.log("[Background] Clearing recordedVideoUrl reference.");
+             recordedVideoUrl = null;
              closeOffscreenDocument();
-             updatePopupUI(); // Ensure UI reflects the cleared state
+             updatePopupUI(); 
          } 
     }
     // --- Message from Offscreen Document --- 
     else if (message.target === 'background' && message.type === 'recording-stopped') {
         console.log("[Background] Received 'recording-stopped' message from offscreen with URL:", message.url);
-        recordedVideoBlobUrl = message.url;
+        recordedVideoUrl = message.url;
         isScreenRecording = false; 
         screenRecordingTabId = null;
-        // Ensure UI updates immediately after receiving the URL
         updatePopupUI(); 
-        // Don't close offscreen doc immediately, wait until after download attempt/revoke
-        // closeOffscreenDocument(); 
+
+        // Set a timeout to eventually clean up if download doesn't happen
+        // Clear any existing timer first (e.g., if stop was called rapidly)
+        if (screenRecordingCleanupTimer) {
+            clearTimeout(screenRecordingCleanupTimer);
+        }
+        const CLEANUP_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+        console.log(`[Background] Setting cleanup timer for ${CLEANUP_TIMEOUT_MS}ms`);
+        screenRecordingCleanupTimer = setTimeout(() => {
+            console.log("[Background] Cleanup timeout reached.");
+            if (recordedVideoUrl) {
+                console.warn("[Background] Video URL still exists after timeout. Revoking and cleaning up.");
+                 try {
+                     self.URL.revokeObjectURL(recordedVideoUrl);
+                 } catch(e) { console.error("[Background] Error revoking URL on cleanup:", e); }
+                 recordedVideoUrl = null;
+                 updatePopupUI();
+            }
+            closeOffscreenDocument();
+            screenRecordingCleanupTimer = null; // Clear timer ID
+        }, CLEANUP_TIMEOUT_MS);
+
     } else if (message.target === 'background' && message.type === 'recording-error') {
-        // Handle potential errors from offscreen doc (e.g., no data)
         console.error("[Background] Received recording error from offscreen:", message.error);
         isScreenRecording = false; 
         screenRecordingTabId = null;
-        recordedVideoBlobUrl = null; // Ensure URL is cleared on error
+        recordedVideoUrl = null;
         updatePopupUI();
-        closeOffscreenDocument(); // Close even on error
+        // Ensure timer is cleared on error too
+        if (screenRecordingCleanupTimer) {
+            clearTimeout(screenRecordingCleanupTimer);
+            screenRecordingCleanupTimer = null;
+        }
+        closeOffscreenDocument();
     }
 
     return needsAsyncResponse;
@@ -395,7 +425,7 @@ async function startScreenRecording() {
     // actual stream depends on user interaction in offscreen)
     isScreenRecording = true;
     screenRecordingTabId = null; // We don't know which tab/window/screen user will choose yet
-    recordedVideoBlobUrl = null; // Clear previous video URL
+    recordedVideoUrl = null; // Use standardized name & Clear previous video URL
     updatePopupUI();
     console.log("Sent start command to offscreen document (will use getDisplayMedia).");
 }

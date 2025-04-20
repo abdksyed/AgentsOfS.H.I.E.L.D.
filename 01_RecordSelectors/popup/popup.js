@@ -39,9 +39,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('\n');
 
         // Update click recording status indicator
-        statusIndicator.className = `indicator ${isRecording ? 'recording' : 'stopped'}`;
+        const clickState = isRecording ? 'recording' : 'stopped';
+        statusIndicator.className = `indicator ${clickState}`;
+        statusIndicator.setAttribute('aria-label', `Clicks recording ${clickState}`);
+        
         // Update screen recording status indicator
-        screenStatusIndicator.className = `indicator ${isScreenRecording ? 'recording' : 'stopped'}`;
+        const screenState = isScreenRecording ? 'recording' : 'stopped';
+        screenStatusIndicator.className = `indicator ${screenState}`;
+        screenStatusIndicator.setAttribute('aria-label', `Screen recording ${screenState}`);
 
         // --- Update Button States ---
         const clickRecordingActive = isRecording;
@@ -231,13 +236,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Listener for updates from Background Script ---
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.action === 'updatePopup') {
-            // Pass all relevant state info to updateUI
             updateUI(
                 message.isRecording, 
                 message.recordedData, 
                 message.activeTabId, 
-                message.isScreenRecording, // Added
-                message.recordedVideoBlobUrl // Corrected property name
+                message.isScreenRecording,
+                message.recordedVideoUrl // Use consistent name 'recordedVideoUrl'
             ); 
         }
     });
@@ -251,13 +255,12 @@ document.addEventListener('DOMContentLoaded', () => {
              return;
         }
         if (response) {
-            // Pass all relevant state info to updateUI
             updateUI(
                 response.isRecording, 
                 response.recordedData, 
                 response.activeTabId, 
-                response.isScreenRecording, // Added
-                response.recordedVideoUrl // Added
+                response.isScreenRecording,
+                response.recordedVideoUrl // Use consistent name 'recordedVideoUrl'
             );
         } else {
             console.warn("No initial state received from background script.");

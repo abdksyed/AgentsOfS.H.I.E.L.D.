@@ -8,7 +8,6 @@
     "storage",
     "scripting",
     "tabs",
-    "tabCapture",
     "offscreen"
   ],
   "background": {
