@@ -1,6 +1,6 @@
 body {
     font-family: sans-serif;
-    width: 400px; /* Increased width for buttons */
+    width: 450px; /* Further increased width */
     padding: 10px;
     box-sizing: border-box;
 }
@@ -13,9 +13,13 @@ body {
 
 .header {
     display: flex;
-    justify-content: flex-end; /* Align status to the right */
+    justify-content: flex-end;
     align-items: center;
     gap: 5px;
+}
+
+.header .spacer {
+    margin-left: 15px; /* Space between click and screen status */
 }
 
 .indicator {
@@ -35,15 +39,34 @@ body {
 
 textarea {
     width: 100%;
-    resize: vertical; /* Allow vertical resize only */
-    min-height: 100px;
-    box-sizing: border-box; /* Include padding/border in width */
+    resize: vertical;
+    min-height: 80px; /* Adjusted min-height */
+    box-sizing: border-box;
 }
 
 .controls {
     display: flex;
-    justify-content: space-between; /* Distribute buttons evenly */
-    gap: 5px; /* Spacing between buttons */
+    /* justify-content: space-between; Remove this for wrap */
+    flex-wrap: wrap; /* Allow buttons to wrap */
+    gap: 8px;
+    align-items: center; /* Align items vertically */
+    border-top: 1px solid #eee; /* Add separator */
+    padding-top: 10px;
+    margin-top: 5px;
+}
+
+.controls label {
+    font-weight: bold;
+    margin-right: 10px;
+    flex-basis: 100%; /* Make label take full width initially */
+    margin-bottom: 5px; /* Add space below label */
+}
+
+/* Adjust flex-basis for specific control groups if needed */
+.click-controls button,
+.screen-controls button {
+   flex-grow: 1; /* Allow buttons to grow */
+   min-width: 100px; /* Minimum width for buttons */
 }
 
 button {
@@ -61,4 +84,35 @@ button:hover {
 button:disabled {
     cursor: not-allowed;
     opacity: 0.6;
+}
+
+.combined-controls {
+    border-top: none; /* No top border for the first control group */
+    padding-top: 5px; /* Less padding */
+    justify-content: center; /* Center the single button */
+}
+
+.combined-controls button {
+     /* You can add specific styling here if needed, 
+        like making it wider or a different color */
+     padding: 10px 20px; /* Make it a bit larger */
+}
+
+.click-controls label,
+.screen-controls label {
+    font-weight: bold;
+    flex-basis: 100%; 
+    margin-bottom: 5px; 
+}
+
+.click-controls,
+.screen-controls {
+     border-top: 1px solid #eee; /* Keep separators for these */
+     padding-top: 10px;
+     margin-top: 5px;
+}
+
+.click-controls button,
+.screen-controls button {
+   /* ... existing button styles ... */
 } 

@@ -7,16 +7,29 @@
 <body>
     <div class="container">
         <div class="header">
-            <span>Status:</span>
+            <span>Clicks:</span>
             <span id="status-indicator" class="indicator stopped"></span>
+            <span class="spacer"></span>
+            <span>Screen:</span>
+            <span id="screen-status-indicator" class="indicator stopped"></span>
         </div>
-        <textarea id="recorded-clicks" rows="10" readonly placeholder="Recorded clicks will appear here..."></textarea>
-        <div class="controls">
-            <button id="start-btn">Start New</button>
-            <button id="resume-btn" disabled>Resume</button>
-            <button id="stop-btn" disabled>Stop</button>
-            <button id="clear-btn" disabled>Clear</button>
-            <button id="download-btn" disabled>Download</button>
+        <textarea id="recorded-clicks" rows="8" readonly placeholder="Recorded events will appear here..."></textarea>
+        <div class="controls combined-controls">
+            <button id="start-both-btn">Start Both</button>
+        </div>
+        <div class="controls click-controls">
+            <label>Click Recording:</label>
+            <button id="start-btn">Start New Events</button>
+            <button id="resume-btn" disabled>Resume Events</button>
+            <button id="stop-btn" disabled>Stop Events</button>
+            <button id="clear-btn" disabled>Clear Events</button>
+            <button id="download-btn" disabled>Download Events</button>
+        </div>
+        <div class="controls screen-controls">
+            <label>Screen Recording:</label>
+            <button id="start-screen-btn">Start Screen Rec</button>
+            <button id="stop-screen-btn" disabled>Stop Screen Rec</button>
+            <button id="download-video-btn" disabled>Download Video</button>
         </div>
     </div>
     <script src="popup.js"></script>
