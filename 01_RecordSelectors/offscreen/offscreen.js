@@ -3,7 +3,7 @@
 let recorder;
 let data = [];
 let mediaStream = null; // Keep track of the stream
-let inactiveHandler = null; // Keep track of the handler
+let inactiveHandler = null; // To store the event handler function
 
 chrome.runtime.onMessage.addListener(async (message) => {
   if (message.target !== 'offscreen') {
@@ -47,13 +47,17 @@ async function startRecording() {
 
     // Define the inactive handler
     inactiveHandler = () => {
-        console.log('[Offscreen] Media stream became inactive event fired.');
-        if (recorder?.state === 'recording') {
-            console.warn('[Offscreen] Stream inactive - stopping recorder.');
-            stopRecording()?.catch(e => console.error("[Offscreen] Error stopping recording after stream inactive:", e));
-        } else {
-            console.log(`[Offscreen] Stream inactive, but recorder is not in recording state (${recorder?.state}). Not stopping again.`);
-        }
+      console.log('[Offscreen] Media stream became inactive.');
+      // If the recorder is still in the 'recording' state when the stream becomes inactive,
+      // attempt to stop it gracefully to finalize the recording.
+      if (recorder?.state === 'recording') {
+          console.log('[Offscreen] Stream inactive while recorder was active. Attempting to stop recorder.');
+          // Call stopRecording and handle potential errors during the stop process.
+          stopRecording().catch(e => console.error("[Offscreen] Error stopping recording after stream inactive:", e));
+      } else {
+          // Log if the stream became inactive but the recorder wasn't in a recording state.
+          console.log(`[Offscreen] Stream inactive, recorder state is already '${recorder?.state}'. No stop action needed.`);
+      }
     };
     // Add the listener
     mediaStream.addEventListener('inactive', inactiveHandler);
@@ -93,51 +97,43 @@ async function startRecording() {
 
     recorder.onstop = async () => {
       console.log('[Offscreen] recorder.onstop event fired.');
-      
-      // Clean up the inactive listener first
+
+      // Remove the inactive listener *before* processing data
       if (mediaStream && inactiveHandler) {
+        console.log('[Offscreen] Removing inactive event listener.');
         mediaStream.removeEventListener('inactive', inactiveHandler);
-        inactiveHandler = null;
-        console.log('[Offscreen] Inactive event listener removed.');
+      } else {
+         console.log('[Offscreen] Could not remove inactive listener: media or handler missing.');
       }
 
       if (data.length === 0) {
-          console.warn('[Offscreen] recorder.onstop: No data chunks recorded.');
-          try {
-              await chrome.runtime.sendMessage({ 
-                  type: 'recording-error',
-                  target: 'background',
-                  error: 'No data recorded' 
-              });
-          } catch (error) {
-              console.error('[Offscreen] Failed to send error message to background:', error);
-          }
-      } else {
-          const blob = new Blob(data, { type: options.mimeType });
-          const url = URL.createObjectURL(blob);
-          console.log(`[Offscreen] Created Blob URL: ${url}`);
-          try {
-              await chrome.runtime.sendMessage({ 
-                  type: 'recording-stopped', 
-                  target: 'background', 
-                  url: url 
-              });
-              console.log('[Offscreen] Recording URL sent to background.');
-          } catch (error) {
-              console.error('[Offscreen] Failed to send recording URL to background:', error);
-              // If sending fails, revoke the URL here as background won't know about it
-              URL.revokeObjectURL(url);
-          }
+        console.error('[Offscreen] No data recorded.');
+        chrome.runtime.sendMessage({ type: 'recordingError', message: 'No data recorded.' });
+        cleanup(); // Still perform cleanup
+        return; 
       }
       
-      // General cleanup
-      if (mediaStream) {
-          mediaStream.getTracks().forEach(track => track.stop());
-          mediaStream = null; 
+      const blob = new Blob(data, { type: recorder.mimeType });
+      const url = URL.createObjectURL(blob);
+      console.log(`[Offscreen] Blob created: ${url}, Size: ${blob.size}`);
+
+      // Send the Blob URL back to the background script
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'recording-stopped',
+          target: 'background',
+          url: url
+        });
+        if (chrome.runtime.lastError) {
+            console.error('[Offscreen] Error sending recording-stopped: ', chrome.runtime.lastError.message);
+            URL.revokeObjectURL(url); // Clean up if sending failed
+        } else {
+            console.log('[Offscreen] Sent recording-stopped message, response:', response);
+        }
+      } catch (error) {
+        console.error('[Offscreen] Failed to send recording-stopped message:', error);
+        URL.revokeObjectURL(url); // Ensure cleanup on error
       }
-      recorder = null; 
-      data = []; 
-      console.log('[Offscreen] Cleanup finished after onstop.');
     };
 
     recorder.start();
@@ -164,11 +160,28 @@ async function startRecording() {
 }
 
 async function stopRecording() {
-  console.log(`[Offscreen] stopRecording() called. Current state: ${recorder?.state}`);
-  if (recorder?.state === 'recording') {
-    recorder.stop(); // This will trigger the onstop event handler
-    console.log('[Offscreen] recorder.stop() invoked.');
-  } else {
-     console.warn(`[Offscreen] No active recording to stop. State: ${recorder?.state}`);
+  if (!recorder) {
+    console.warn('[Offscreen] stopRecording called but recorder is not initialized.');
+    return;
+  }
+
+  console.log('[Offscreen] Stopping recorder...');
+  recorder.stop(); // This will trigger the 'onstop' event handler where the blob is processed
+
+  // Ensure cleanup even if 'onstop' doesn't fire or fails
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(track => track.stop());
+    console.log('[Offscreen] Media stream tracks stopped in stopRecording.');
+  }
+  mediaStream = null;
+  inactiveHandler = null; // Clear handler reference
+
+  // Although 'onstop' handles sending the URL, we send a final confirmation
+  // This helps signal the end explicitly, especially if 'onstop' might have issues
+  try {
+    await chrome.runtime.sendMessage({ type: 'recording-stopped', target: 'background' });
+    console.log('[Offscreen] Sent recording-stopped message.');
+  } catch (error) {
+    console.error('[Offscreen] Failed to send recording-stopped message:', error);
   }
 }

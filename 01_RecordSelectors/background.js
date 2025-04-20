@@ -373,13 +373,14 @@ async function startClickRecordingInternal(requestingTabId) {
     
     const targetTabId = tabs[0].id;
     
-    // Check if screen recording is already active on a *different* tab.
-    if (isScreenRecording && screenRecordingTabId && screenRecordingTabId !== targetTabId) {
-         console.warn(`[Background] Cannot start click recording on tab ${targetTabId} because screen recording is active on a different tab (${screenRecordingTabId}).`);
-         throw new Error("Screen recording active on another tab");
+    // Check if screen recording is already active.
+    // We simplified this check as screenRecordingTabId is null with getDisplayMedia.
+    if (isScreenRecording) {
+         console.warn(`[Background] Cannot start click recording on tab ${targetTabId} because screen recording is active.`);
+         throw new Error("Screen recording already active");
     }
 
-    // Proceed if no screen recording, or if screen recording is on the *same* tab.
+    // Proceed if no screen recording.
     console.log(`[Background] Proceeding with click recording start for tab ${targetTabId}.`);
     activeTabId = targetTabId;
     isRecording = true;

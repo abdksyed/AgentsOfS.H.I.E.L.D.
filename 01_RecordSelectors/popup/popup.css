@@ -3,6 +3,8 @@ body {
     width: 450px; /* Further increased width */
     padding: 10px;
     box-sizing: border-box;
+    min-height: 200px; /* Example minimum height */
+    padding-bottom: 20px; /* Padding at the bottom */
 }
 
 .container {
@@ -23,18 +25,22 @@ body {
 }
 
 .indicator {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    display: inline-block;
+    margin: 0 5px;
+    background-color: grey; /* Default inactive color */
 }
 
-.indicator.stopped {
-    background-color: red;
+/* Corrected selectors for status indicators */
+#status-indicator.recording,
+#screen-status-indicator.recording {
+    background-color: #4CAF50; /* Green for recording */
 }
 
-.indicator.recording {
-    background-color: limegreen;
+#status-indicator.stopped,
+#screen-status-indicator.stopped {
+    background-color: #ccc; /* Gray for stopped */
 }
 
 textarea {
@@ -71,33 +77,77 @@ textarea {
    /* If button {} rule exists below, these specific ones might just need flex properties */
 }
 
-button { /* General button styling */
-    padding: 8px 12px;
+/* Consistent button styles */
+button {
+    padding: 10px 15px;
+    margin: 5px;
+    border: none;
+    border-radius: 5px;
     cursor: pointer;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    background-color: #f0f0f0;
+    font-size: 14px;
+    transition: background-color 0.3s;
 }
 
-button:hover { 
-    background-color: #e0e0e0;
+button#startScreenRecording,
+button#stopScreenRecording,
+button#startClickRecording,
+button#stopClickRecording,
+button#downloadVideo,
+button#closePopup {
+    background-color: #4CAF50;
+    color: white;
 }
 
-button:disabled { 
+button#stopScreenRecording,
+button#stopClickRecording {
+    background-color: #f44336; 
+}
+
+button#downloadVideo,
+button#closePopup {
+    background-color: #008CBA;
+}
+
+button:disabled {
+    background-color: #ccc;
     cursor: not-allowed;
-    opacity: 0.6;
 }
 
-.combined-controls {
-    border-top: none; /* No top border for the first control group */
-    padding-top: 5px; /* Less padding */
-    justify-content: center; /* Center the single button */
+button:hover:not(:disabled) {
+    opacity: 0.9;
 }
 
-.combined-controls button { /* Specific styling for the combined buttons */
-     padding: 10px 20px; /* Make it a bit larger */
-     /* Inherits general button styles above */
-     /* flex-grow: 0; /* Prevent combined buttons from growing too much if needed */
+button#startScreenRecording:hover:not(:disabled),
+button#startClickRecording:hover:not(:disabled) {
+    background-color: #45a049;
+}
+
+button#stopScreenRecording:hover:not(:disabled),
+button#stopClickRecording:hover:not(:disabled) {
+    background-color: #da190b;
+}
+
+button#downloadVideo:hover:not(:disabled),
+button#closePopup:hover:not(:disabled) {
+    background-color: #007ba7;
+}
+
+#statusIndicators {
+    margin-top: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.hidden {
+    display: none;
+}
+
+/* Explicitly hide the video player initially */
+#videoPlayer {
+    display: none;
+    margin-top: 10px;
+    max-width: 100%; /* Ensure video player does not overflow */
 }
 
 .click-controls label,
