@@ -17,7 +17,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const startBothBtn = document.getElementById('start-both-btn');
     const stopBothBtn = document.getElementById('stop-both-btn'); // Added Stop Both
 
-    // --- NEW: Button State Management Function ---
+    /**
+     * Updates the enabled or disabled state of all recording control buttons based on current recording activity and data availability.
+     *
+     * @param {boolean} clickRecordingActive - Whether click recording is currently active.
+     * @param {boolean} screenRecordingActive - Whether screen recording is currently active.
+     * @param {boolean} hasData - Whether there is recorded click/input data available.
+     * @param {string|null} videoUrl - The URL of the recorded screen video, or null if unavailable.
+     */
     function updateButtonStates(clickRecordingActive, screenRecordingActive, hasData, videoUrl) {
         const canStartSomething = !clickRecordingActive && !screenRecordingActive;
         const isAnythingRecording = clickRecordingActive || screenRecordingActive;
@@ -37,7 +44,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Function to update UI elements based on state
-    // Now includes screen recording state
+    /**
+     * Updates the popup UI to reflect the current state of click and screen recordings.
+     *
+     * Updates the recorded events display, status indicators, and button states based on whether click or screen recording is active, the presence of recorded data, and the availability of a recorded video URL.
+     *
+     * @param {boolean} isRecording - Whether click recording is currently active.
+     * @param {Array} recordedData - Array of recorded click and input change events.
+     * @param {number|null} activeTabId - The ID of the active tab, or null if unavailable.
+     * @param {boolean} isScreenRecording - Whether screen recording is currently active.
+     * @param {string|null} videoUrl - Blob URL of the recorded screen video, or null if not available.
+     */
     function updateUI(isRecording, recordedData, activeTabId, isScreenRecording, videoUrl) {
         // Add log to check received videoUrl
         console.log('[Popup] updateUI called. isScreenRecording:', isScreenRecording, 'videoUrl:', videoUrl);
@@ -207,7 +224,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- Helper function for Download ---
+    /**
+     * Downloads recorded click and input change events as a formatted text file.
+     *
+     * Formats each event with its type, selector, and relevant values, then triggers a download of the data as 'recorded_events.txt'.
+     *
+     * @param {Array} data - Array of recorded event objects to be downloaded.
+     */
     function downloadData(data) {
         const dataArray = Array.isArray(data) ? data : [];
         

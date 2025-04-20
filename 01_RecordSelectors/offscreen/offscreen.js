@@ -33,6 +33,13 @@ chrome.runtime.onMessage.addListener(async (message) => {
   }
 });
 
+/**
+ * Initiates screen and audio recording using the MediaRecorder API and sends the resulting Blob URL to the background script.
+ *
+ * Prompts the user to select a screen, window, or tab to capture with both audio and video. Selects the best supported codec for recording, sets up event handlers for stream inactivity and data collection, and manages error reporting. When recording stops, the recorded data is combined into a Blob and a Blob URL is sent to the background script. If no data is recorded or an error occurs during setup, an error message is sent instead.
+ *
+ * @remark If the media stream becomes inactive during recording, the recording is stopped automatically and finalized.
+ */
 async function startRecording() {
   if (recorder?.state === 'recording') {
     console.warn('[Offscreen] Recording already in progress.');
@@ -159,6 +166,11 @@ async function startRecording() {
   }
 }
 
+/**
+ * Stops the active media recording session and cleans up associated resources.
+ *
+ * Stops the MediaRecorder, halts all tracks of the media stream, clears internal references, and sends a final confirmation message to the background script indicating that recording has ended.
+ */
 async function stopRecording() {
   if (!recorder) {
     console.warn('[Offscreen] stopRecording called but recorder is not initialized.');

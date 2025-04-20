@@ -8,7 +8,11 @@ let screenRecordingTabId = null; // Tab being screen recorded
 let recordedVideoUrl = null; // Standardized name
 let screenRecordingCleanupTimer = null; // Timer ID for cleanup
 
-// --- Storage Functions ---
+/**
+ * Loads the recording state, recorded data, and active tab ID from persistent storage.
+ *
+ * If click recording was active, reattaches the content script listener in the recorded tab to resume event capture.
+ */
 async function loadState() {
     const result = await chrome.storage.local.get(['isRecording', 'recordedData', 'activeTabId']);
     isRecording = result.isRecording || false;
@@ -42,7 +46,12 @@ chrome.runtime.onInstalled.addListener(() => {
 loadState();
 
 // --- Offscreen Document Management ---
-let creatingOffscreenDocument = null; // Promise to prevent race conditions
+let creatingOffscreenDocument = null; /**
+ * Checks if an offscreen document with the specified path currently exists.
+ *
+ * @param {string} path - The relative path to the offscreen document.
+ * @returns {Promise<boolean>} Resolves to true if the offscreen document exists, otherwise false.
+ */
 
 async function hasOffscreenDocument(path) {
     // Check all existing contexts for a match.
@@ -56,6 +65,13 @@ async function hasOffscreenDocument(path) {
     return contexts && contexts.length > 0;
 }
 
+/**
+ * Ensures an offscreen document exists at the specified path, creating it if necessary.
+ *
+ * If an offscreen document is already being created, waits for its creation to complete to prevent race conditions.
+ *
+ * @param {string} path - The URL path for the offscreen document.
+ */
 async function setupOffscreenDocument(path) {
     // If we do not have an offscreen document, create one.
     if (!(await hasOffscreenDocument(path))) {
@@ -77,6 +93,11 @@ async function setupOffscreenDocument(path) {
     }
 }
 
+/**
+ * Closes the offscreen document used for screen recording if it exists.
+ *
+ * @returns {Promise<void>}
+ */
 async function closeOffscreenDocument() {
     const path = 'offscreen/offscreen.html'; // Match the path used in setup
     if (!(await hasOffscreenDocument(path))) {
@@ -86,7 +107,11 @@ async function closeOffscreenDocument() {
      console.log("Offscreen document closed.");
 }
 
-// --- Communication Functions ---
+/**
+ * Sends a message to the popup script, handling cases where the popup is not open or listening.
+ *
+ * @param {object} message - The message object to send to the popup.
+ */
 async function sendMessageToPopup(message) {
     try {
         await chrome.runtime.sendMessage(message);
@@ -102,6 +127,14 @@ async function sendMessageToPopup(message) {
     }
 }
 
+/**
+ * Sends a message to the content script in the specified tab.
+ *
+ * Logs a warning if the content script is not ready or not present in the target tab.
+ *
+ * @param {number} tabId - The ID of the tab to which the message should be sent.
+ * @param {any} message - The message payload to send to the content script.
+ */
 async function sendMessageToContentScript(tabId, message) {
     try {
         await chrome.tabs.sendMessage(tabId, message);
@@ -117,6 +150,11 @@ async function sendMessageToContentScript(tabId, message) {
     }
 }
 
+/**
+ * Sends the current recording state and data to the popup for UI updates.
+ *
+ * Includes both click and screen recording statuses, the active tab ID, recorded click/input events, and the recorded video URL if available.
+ */
 function updatePopupUI() {
     // Add log to see what state is being sent
     console.log("[Background] Updating Popup UI with state:", { isRecording, activeTabId, isScreenRecording, recordedVideoUrl });
@@ -348,7 +386,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // --- Internal Helper Functions ---
 
-// Refactored click recording start logic into an async function
+/**
+ * Starts click recording on the active tab or a specified tab, ensuring no screen recording is in progress.
+ *
+ * @param {number} requestingTabId - The ID of the tab requesting to start recording, used as a fallback if no active tab is found.
+ * @returns {Promise<void>}
+ *
+ * @throws {Error} If no suitable active tab is found or if screen recording is already active.
+ */
 async function startClickRecordingInternal(requestingTabId) {
      console.log("[Background] Attempting to start click recording.");
      let tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -391,7 +436,11 @@ async function startClickRecordingInternal(requestingTabId) {
     console.log("[Background] Click recording started for tab:", activeTabId);
 }
 
-// Helper for stopping click recording (internal use)
+/**
+ * Stops click recording and updates the persistent state and popup UI.
+ *
+ * If a tab was actively being recorded, instructs its content script to stop listening for events. The active tab ID is retained to allow resuming recording later.
+ */
 function stopClickRecordingInternal() {
      if (activeTabId) {
          sendMessageToContentScript(activeTabId, { action: 'stopListening' });
@@ -403,7 +452,12 @@ function stopClickRecordingInternal() {
      console.log("[Background] Click recording stopped for tab:", activeTabId);
 }
 
-// --- Screen Recording Logic ---
+/**
+ * Initiates screen recording by creating an offscreen document and prompting the user to select a screen, window, or tab to record.
+ *
+ * @remark
+ * Assumes recording starts immediately after sending the command, but actual recording depends on user interaction with the getDisplayMedia prompt in the offscreen document.
+ */
 async function startScreenRecording() {
     if (isScreenRecording) {
         console.warn("Screen recording is already active.");
@@ -431,6 +485,11 @@ async function startScreenRecording() {
     console.log("Sent start command to offscreen document (will use getDisplayMedia).");
 }
 
+/**
+ * Stops the active screen recording session.
+ *
+ * Updates the UI state immediately to reflect that recording has stopped, then instructs the offscreen document to finalize and stop the recording process. The recorded video URL is handled separately when the offscreen document responds.
+ */
 async function stopScreenRecording() {
     if (!isScreenRecording) {
         console.warn("[Background] No active screen recording to stop.");
