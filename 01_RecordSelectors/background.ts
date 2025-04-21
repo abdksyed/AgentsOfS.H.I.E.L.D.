@@ -17,8 +17,26 @@ let screenRecordingCleanupTimer: number | null = null; // setTimeout returns a n
 /** @type {Blob | null} - The actual Blob data for the latest completed screen recording */
 let recordedVideoBlob: Blob | null = null;
 
-// Add type for GEMINI_API_KEY if it's managed globally
-let GEMINI_API_KEY: string | null = null; // Assuming it's loaded elsewhere, potentially async
+// Promise to track API key loading
+let geminiKeyLoaded: Promise<void>;
+// Variable to store the loaded API key
+let GEMINI_API_KEY: string | null = null;
+
+// Use an IIFE to handle top-level await for storage access
+geminiKeyLoaded = (async () => {
+    try {
+        const result = await chrome.storage.local.get('geminiApiKey');
+        if (result.geminiApiKey) {
+            GEMINI_API_KEY = result.geminiApiKey;
+            console.log("Gemini API Key loaded from storage.");
+        } else {
+            console.warn("Gemini API Key not found in chrome.storage.local. Please set it via options page or manually.");
+            // Consider providing a way for the user to set this key
+        }
+    } catch (error) {
+        console.error("Error loading Gemini API Key from storage:", error);
+    }
+})();
 
 // Add state for AI generation
 let isAiGenerating: boolean = false;
@@ -740,23 +758,6 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
 });
 
 // --- Gemini API Integration ---
-// Retrieve API key at runtime - never store the plain key in source control
-// Use an IIFE to handle top-level await for storage access
-+(async () => {
-    try {
-        const result = await chrome.storage.local.get('geminiApiKey');
-        if (result.geminiApiKey) {
-            GEMINI_API_KEY = result.geminiApiKey;
-            console.log("Gemini API Key loaded from storage.");
-        } else {
-            console.warn("Gemini API Key not found in chrome.storage.local. Please set it via options page or manually.");
-            // Consider providing a way for the user to set this key
-        }
-    } catch (error) {
-        console.error("Error loading Gemini API Key from storage:", error);
-    }
-})();
-
 // Use the new model name in the URL
 const GEMINI_MODEL_NAME = 'gemini-2.5-flash-preview-04-17';
 // Base URL - Key will be appended in callGeminiApi if available
@@ -790,6 +791,9 @@ function blobToBase64(blob: Blob): Promise<string> {
  * @returns {Promise<string|null>} A promise that resolves with the generated steps text, or null on error.
  */
 async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPrompt = ""): Promise<string | null> {
+    // Ensure the key has loaded before proceeding
+    await geminiKeyLoaded;
+
     if (!GEMINI_API_KEY) {
         const errorMsg = 'Gemini API Key not configured. Please set it in extension settings/storage.';
         console.warn(errorMsg);
@@ -858,7 +862,7 @@ async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPr
                 }
             ],
             generationConfig: { // Optional: Add generation config if needed
-                 "maxOutputTokens": 16384, // Increased for potentially long steps
+                 "maxOutputTokens": 8192, 
                  "temperature": 0.2, // Slightly creative but mostly factual
                  "topP": 0.95,
                  "topK": 40
@@ -867,8 +871,8 @@ async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPr
 
         console.log('Sending request to Gemini API (', GEMINI_MODEL_NAME, ')...');
         // 5. Make the API call - Construct URL with key here
-        const fullApiUrl = `${GEMINI_API_BASE_URL}?key=${GEMINI_API_KEY}`;
-        const response = await fetch(fullApiUrl, {
+        const apiUrlWithKey = `${GEMINI_API_BASE_URL}?key=${GEMINI_API_KEY}`;
+        const response = await fetch(apiUrlWithKey, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1037,7 +1041,8 @@ function stopClickRecordingInternal(): void {
  * Clears any stored video resources (Blob URL and Blob data).
  * Also clears the cleanup timer associated with the video URL.
  */
-function clearVideoResources(): void {
+// Make function async to allow awaiting saveState
+async function clearVideoResources(): Promise<void> {
     if (screenRecordingCleanupTimer !== null) { // Ensure null check is here
         clearTimeout(screenRecordingCleanupTimer);
         screenRecordingCleanupTimer = null;
@@ -1048,7 +1053,8 @@ function clearVideoResources(): void {
     }
     recordedVideoBlob = null; // Clear the blob data too
     console.log("Cleared video resources (URL, Blob, Timer).");
-    // Don't save state here, let callers decide when to persist
+    // Add saveState call as per review comment
+    await saveState();
     // Don't update UI here, let callers decide
 }
 

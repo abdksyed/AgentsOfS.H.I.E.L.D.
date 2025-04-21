@@ -292,9 +292,6 @@ async function stopRecording(): Promise<void> {
        console.warn('[Offscreen] stopRecording called, but recorder state is already', recorder.state, '. Not calling stop() again.');
   }
 
-  // Tracks are stopped in recorder.onstop or in stopMediaStreams, 
-  // but call stopMediaStreams here too for safety, especially if onstop isn't reached.
-  stopMediaStreams();
 }
 
 /**

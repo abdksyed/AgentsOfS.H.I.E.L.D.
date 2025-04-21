@@ -141,7 +141,10 @@ function handleDocumentClick(event: MouseEvent): void {
 
     // If the clicked element is an input or textarea, add a blur listener
     const tagName: string = targetElement.tagName.toLowerCase();
-    if ((tagName === 'input' || tagName === 'textarea') && targetElement instanceof (HTMLInputElement || HTMLTextAreaElement)) {
+    if (
+      (tagName === 'input' && targetElement instanceof HTMLInputElement) ||
+      (tagName === 'textarea' && targetElement instanceof HTMLTextAreaElement)
+    ) {
         const inputElement = targetElement as HTMLInputElement | HTMLTextAreaElement; // Assert type
         const initialValue: string = inputElement.value; // Get current value directly
         const selectorForInput: string | null = getCssSelector(inputElement); // Still need selector for input change tracking
@@ -185,7 +188,7 @@ function removeClickListener(): void {
  * Listener for messages from the background script or popup.
  * Handles 'startListening' and 'stopListening' actions.
  */
-chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void): boolean | void => { // Type parameters and return
+chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void): boolean | undefined => {
     console.log("Message received in content script:", message);
     if (message.action === 'startListening') {
         addClickListener();
@@ -196,7 +199,10 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
     } else {
         sendResponse({ success: false, error: 'Unknown action' });
     }
-    // Return void or boolean based on async nature. Since it's sync, void is fine.
+    // For synchronous listeners, returning undefined (implicitly or explicitly) is standard.
+    // If the listener might respond asynchronously, it must return true.
+    // Adding explicit return to satisfy linter.
+    return undefined;
 });
 
 // Initial check - If the background script already thinks we should be recording 
