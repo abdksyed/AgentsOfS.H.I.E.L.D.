@@ -18,20 +18,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const stopBothBtn = document.getElementById('stop-both-btn'); // Added Stop Both
 
     // --- NEW: Button State Management Function ---
-    function updateButtonStates(clickRecordingActive, screenRecordingActive, hasData, videoUrl) {
+    function updateButtonStates(clickRecordingActive, screenRecordingActive, hasData, videoUrl, activeTabId) {
         const canStartSomething = !clickRecordingActive && !screenRecordingActive;
         const isAnythingRecording = clickRecordingActive || screenRecordingActive;
 
         startBothBtn.disabled = !canStartSomething;
         stopBothBtn.disabled = !isAnythingRecording;
 
-        startBtn.disabled = !canStartSomething || screenRecordingActive; // Disable if screen rec active or can't start
+        startBtn.disabled = !canStartSomething || screenRecordingActive; 
         resumeBtn.disabled = clickRecordingActive || screenRecordingActive; // Can't resume if anything is recording
         stopBtn.disabled = !clickRecordingActive;
-        clearBtn.disabled = (hasData && !isAnythingRecording); // Enable only if not recording and there's data (or activeTabId is null, handled outside for now)
+        
+        // CORRECTED Clear button logic: Disable if (no data AND no tab) OR (recording active)
+        clearBtn.disabled = (!hasData && activeTabId === null) || isAnythingRecording; 
+        
         downloadBtn.disabled = !hasData || isAnythingRecording; // Enable only if has data and not recording
 
-        startScreenBtn.disabled = !canStartSomething || clickRecordingActive; // Disable if click rec active or can't start
+        startScreenBtn.disabled = !canStartSomething || clickRecordingActive; 
         stopScreenBtn.disabled = !screenRecordingActive;
         downloadVideoBtn.disabled = !videoUrl || isAnythingRecording; // Enable only if videoUrl exists and not recording
     }
@@ -69,10 +72,8 @@ document.addEventListener('DOMContentLoaded', () => {
         screenStatusIndicator.setAttribute('aria-label', `Screen recording ${screenState}`);
 
         // --- Use the new button state management function ---
-        updateButtonStates(isRecording, isScreenRecording, hasData, videoUrl);
-        // Special handling for clearBtn related to activeTabId needs adjustment
-        clearBtn.disabled = (dataArray.length === 0 && activeTabId === null) || isRecording || isScreenRecording;
-
+        updateButtonStates(isRecording, isScreenRecording, hasData, videoUrl, activeTabId);
+        
         recordedClicksTextarea.scrollTop = recordedClicksTextarea.scrollHeight;
     }
 
