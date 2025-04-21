@@ -254,11 +254,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const reEnableButton = () => {
                      if (!downloadBtn) return;
                      chrome.runtime.sendMessage({ action: 'getInitialState' }, (state?: ExtensionState) => {
-                         if (state && downloadBtn) {
-                             downloadBtn.disabled = !state.recordedData?.length || state.isScreenRecording || state.isRecording;
-                         } else if(downloadBtn) {
-                             downloadBtn.disabled = true; // Disable if state is unavailable
-                         }
+                         if (!downloadBtn) return;
+                         downloadBtn.disabled = !(state?.recordedData?.length)
+                             || state?.isScreenRecording
+                             || (state?.isRecording ?? true); // Default to disabled if state is incomplete
                      });
                  };
 
@@ -343,8 +342,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             console.error("[Popup] Error getting state to re-enable download video button:", chrome.runtime.lastError.message);
                             // Keep button disabled as a fallback if state fails?
                         } else if (downloadVideoBtn) {
-                            // Apply optional chaining fix from Biome
-                            downloadVideoBtn.disabled = !state?.hasVideo || state?.isRecording || state?.isScreenRecording;
+                            // Refactor using optional chaining and nullish coalescing as per review
+                            // Adding parentheses to clarify precedence for linter
+                            downloadVideoBtn.disabled = !state?.hasVideo
+                                || state?.isScreenRecording
+                                || (state?.isRecording ?? true); // Default to disabled if state incomplete
                         }
                     });
                 };

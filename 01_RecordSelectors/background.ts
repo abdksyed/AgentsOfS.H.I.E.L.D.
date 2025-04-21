@@ -637,7 +637,7 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
                 }
                 await saveState(); // Save state reflecting URL cleanup
                 updatePopupUI();
-                // sendResponse({ success: true }); // No longer need to send response here, message listener handles it
+                sendResponse({ success: true });
 
             } catch (error: any) {
                 console.error("Error during AI Magic Gemini call or video fetch:", error);
@@ -654,7 +654,7 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
                 }
                 await saveState();
                 updatePopupUI();
-                // sendResponse({ success: false, error: error.message }); // No longer need to send response here
+                sendResponse({ success: false, error: error.message });
             }
         })();
 
@@ -794,6 +794,20 @@ async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPr
     // Ensure the key has loaded before proceeding
     await geminiKeyLoaded;
 
+    // Add Blob size check as per review comment
+    const MAX_BLOB_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB limit (adjust as needed)
+    if (videoBlob.size > MAX_BLOB_SIZE_BYTES) {
+        const errorMsg = `Video file size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds the limit of ${MAX_BLOB_SIZE_BYTES / (1024 * 1024)} MB for AI analysis.`;
+        console.error(errorMsg);
+        sendMessageToPopup({ action: 'showAiMagicResults', results: `Error: ${errorMsg}` });
+        sendMessageToPopup({ action: 'showNotification', message: errorMsg, type: 'error' });
+        // Update state to reflect the error
+        isAiGenerating = false;
+        lastAiResults = `Error: ${errorMsg}`;
+        await saveState(); 
+        return null; // Stop processing
+    }
+
     if (!GEMINI_API_KEY) {
         const errorMsg = 'Gemini API Key not configured. Please set it in extension settings/storage.';
         console.warn(errorMsg);
@@ -863,9 +877,6 @@ async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPr
             ],
             generationConfig: { // Optional: Add generation config if needed
                  "maxOutputTokens": 8192, 
-                 "temperature": 0.2, // Slightly creative but mostly factual
-                 "topP": 0.95,
-                 "topK": 40
             }
         };
 

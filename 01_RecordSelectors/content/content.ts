@@ -30,7 +30,7 @@ function getTargetAndAncestorContextHTML(element: Element | null, maxLevels: num
     // Iterate from the highest desired ancestor downwards (ancestors[3], ancestors[2], ancestors[1])
     for (let level: number = maxLevels; level >= 1; level--) {
         const ancestorElement: Element | null = ancestors[level];
-        if (ancestorElement) {
+        if (ancestorElement !== undefined && ancestorElement !== null) {
              // Check complexity: number of descendant elements
             const descendantCount: number = ancestorElement.querySelectorAll('*').length;
             // console.log(`Level ${level} ancestor: ${ancestorElement.tagName}, Descendants: ${descendantCount}`);
@@ -56,19 +56,23 @@ function getTargetAndAncestorContextHTML(element: Element | null, maxLevels: num
 function getCssSelector(element: Element | null): string | null {
     if (!(element instanceof Element)) return null;
 
+    // Helper for escaping CSS identifiers
+    const escapeCSS = (s: string): string => {
+        if (typeof CSS?.escape === 'function') {
+            return CSS.escape(s);
+        }
+        // Fallback regex escape
+        return s.replace(/([\:.#*+>~=\[\]$|()])/g, "\\$1"); // Added () to regex
+    };
+
     let selector: string = element.nodeName.toLowerCase();
 
     if (element.id) {
-        // Escape special characters in ID for CSS
-        const escapedId: string = element.id.replace(/([\\:.#*+>~=^\[\]$|])/g, "\\\\$1");
-        selector += `#${escapedId}`;
-        // We prioritize ID, so we don't add classes if an ID exists.
-        // If you want ID *and* classes, uncomment the class part below.
+        selector += `#${escapeCSS(element.id)}`;
     } else if (element.classList.length > 0) {
-        // Filter out empty strings and join classes
         const classes: string[] = Array.from(element.classList)
                            .filter(cls => cls.length > 0)
-                           .map(cls => cls.replace(/([\\:.#*+>~=^\[\]$|])/g, "\\\\$1")); // Escape class names too
+                           .map(escapeCSS); // Use helper for classes too
         if (classes.length > 0) {
             selector += "." + classes.join(".");
         }
