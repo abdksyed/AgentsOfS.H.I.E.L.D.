@@ -1,8 +1,10 @@
 body {
     font-family: sans-serif;
-    width: 400px; /* Increased width for buttons */
+    width: 450px; /* Further increased width */
     padding: 10px;
     box-sizing: border-box;
+    min-height: 200px; /* Example minimum height */
+    padding-bottom: 20px; /* Padding at the bottom */
 }
 
 .container {
@@ -13,52 +15,151 @@ body {
 
 .header {
     display: flex;
-    justify-content: flex-end; /* Align status to the right */
+    justify-content: flex-end;
     align-items: center;
     gap: 5px;
 }
 
+.header .spacer {
+    margin-left: 15px; /* Space between click and screen status */
+}
+
 .indicator {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    display: inline-block;
+    margin: 0 5px;
+    background-color: grey; /* Default inactive color */
 }
 
-.indicator.stopped {
-    background-color: red;
+/* Corrected selectors for status indicators */
+#status-indicator.recording,
+#screen-status-indicator.recording {
+    background-color: #4CAF50; /* Green for recording */
 }
 
-.indicator.recording {
-    background-color: limegreen;
+#status-indicator.stopped,
+#screen-status-indicator.stopped {
+    background-color: #ccc; /* Gray for stopped */
 }
 
 textarea {
     width: 100%;
-    resize: vertical; /* Allow vertical resize only */
-    min-height: 100px;
-    box-sizing: border-box; /* Include padding/border in width */
+    resize: vertical;
+    min-height: 80px; /* Adjusted min-height */
+    box-sizing: border-box;
 }
 
 .controls {
     display: flex;
-    justify-content: space-between; /* Distribute buttons evenly */
-    gap: 5px; /* Spacing between buttons */
+    /* justify-content: space-between; Remove this for wrap */
+    flex-wrap: wrap; /* Allow buttons to wrap */
+    gap: 8px;
+    align-items: center; /* Align items vertically */
+    border-top: 1px solid #eee; /* Add separator */
+    padding-top: 10px;
+    margin-top: 5px;
 }
 
+.controls label {
+    font-weight: bold;
+    margin-right: 10px;
+    flex-basis: 100%; /* Make label take full width initially */
+    margin-bottom: 5px; /* Add space below label */
+}
+
+/* Adjust flex-basis for specific control groups if needed */
+.click-controls button,
+.screen-controls button {
+   flex-grow: 1; /* Allow buttons to grow */
+   min-width: 100px; /* Minimum width for buttons */
+   /* Ensure general button styles are applied if not inherited */
+   /* If button {} rule exists below, these specific ones might just need flex properties */
+}
+
+/* Consistent button styles */
 button {
-    padding: 8px 12px;
+    padding: 10px 15px;
+    margin: 5px;
+    border: none;
+    border-radius: 5px;
     cursor: pointer;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    background-color: #f0f0f0;
+    font-size: 14px;
+    transition: background-color 0.3s;
 }
 
-button:hover {
-    background-color: #e0e0e0;
+button#startScreenRecording,
+button#stopScreenRecording,
+button#startClickRecording,
+button#stopClickRecording,
+button#downloadVideo,
+button#closePopup {
+    background-color: #4CAF50;
+    color: white;
+}
+
+button#stopScreenRecording,
+button#stopClickRecording {
+    background-color: #f44336; 
+}
+
+button#downloadVideo,
+button#closePopup {
+    background-color: #008CBA;
 }
 
 button:disabled {
+    background-color: #ccc;
     cursor: not-allowed;
-    opacity: 0.6;
-} 
+}
+
+button:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+button#startScreenRecording:hover:not(:disabled),
+button#startClickRecording:hover:not(:disabled) {
+    background-color: #45a049;
+}
+
+button#stopScreenRecording:hover:not(:disabled),
+button#stopClickRecording:hover:not(:disabled) {
+    background-color: #da190b;
+}
+
+button#downloadVideo:hover:not(:disabled),
+button#closePopup:hover:not(:disabled) {
+    background-color: #007ba7;
+}
+
+#statusIndicators {
+    margin-top: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.hidden {
+    display: none;
+}
+
+/* Explicitly hide the video player initially */
+#videoPlayer {
+    display: none;
+    margin-top: 10px;
+    max-width: 100%; /* Ensure video player does not overflow */
+}
+
+.click-controls label,
+.screen-controls label {
+    font-weight: bold;
+    flex-basis: 100%; 
+    margin-bottom: 5px; 
+}
+
+.click-controls,
+.screen-controls {
+     border-top: 1px solid #eee; /* Keep separators for these */
+     padding-top: 10px;
+     margin-top: 5px;
+}
