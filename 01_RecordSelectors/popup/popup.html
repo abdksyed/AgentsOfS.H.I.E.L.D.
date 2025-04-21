@@ -40,11 +40,20 @@
             <button id="stop-screen-btn" disabled>Stop Screen Rec</button>
             <button id="download-video-btn" disabled>Download Video</button>
         </div>
-        <div class="results-section">
-            <label>Generated Steps:</label>
-            <textarea id="generated-steps" rows="10" readonly placeholder="Analysis results will appear here after generating..."></textarea>
-            <button id="generate-steps-btn" disabled>Generate Steps with AI</button>
-            <button id="copy-steps-btn" disabled>Copy Steps</button>
+        <div class="ai-magic-section">
+            <label>AI Magic:</label>
+            <label for="ai-prompt">Prompt:</label>
+            <input type="text" id="ai-prompt" placeholder="Describe the test flow you recorded...">
+            <button id="ai-generate-btn">Generate</button>
+            <label>Results:</label>
+            <textarea id="ai-results" rows="10" readonly placeholder="AI results will appear here..."></textarea>
+            <button id="ai-copy-btn" disabled>Copy Results</button>
+        </div>
+        <div class="settings-section">
+            <label>Settings:</label>
+            <label for="api-key-input">Gemini API Key:</label>
+            <input type="password" id="api-key-input" placeholder="Enter your API key">
+            <button id="save-api-key-btn">Save Key</button>
         </div>
         <div id="statusMessage" class="status-message" role="status" aria-live="polite" aria-label="Status updates"></div>
     </div>

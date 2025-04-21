@@ -6,10 +6,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const downloadBtn = document.getElementById('download-btn');
     const recordedClicksTextarea = document.getElementById('recorded-clicks');
     const statusIndicator = document.getElementById('status-indicator');
-    const generatedStepsTextarea = document.getElementById('generated-steps');
-    const generateStepsBtn = document.getElementById('generate-steps-btn'); // New button
-    const copyStepsBtn = document.getElementById('copy-steps-btn');
-    // const statusMessageDiv = document.getElementById('statusMessage'); // Get status message div
+    // const statusMessageDiv = document.getElementById('statusMessage'); // Unused variable
+
+    // AI Magic elements
+    const aiPromptInput = document.getElementById('ai-prompt');
+    const aiGenerateBtn = document.getElementById('ai-generate-btn');
+    const aiResultsTextarea = document.getElementById('ai-results');
+    const aiCopyBtn = document.getElementById('ai-copy-btn');
 
     // Screen recording elements
     const screenStatusIndicator = document.getElementById('screen-status-indicator');
@@ -19,10 +22,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Combined control
     const startBothBtn = document.getElementById('start-both-btn');
-    const stopBothBtn = document.getElementById('stop-both-btn'); // Added Stop Both
+    const stopBothBtn = document.getElementById('stop-both-btn');
 
-    // --- NEW: Button State Management Function ---
-    function updateButtonStates(clickRecordingActive, screenRecordingActive, hasClickData, hasVideoData, activeTabId, hasGeneratedSteps) {
+    // Settings elements
+    const apiKeyInput = document.getElementById('api-key-input');
+    const saveApiKeyBtn = document.getElementById('save-api-key-btn');
+
+    /**
+     * Updates the enabled/disabled state of all control buttons based on the current
+     * recording and data state.
+     * @param {boolean} clickRecordingActive - Is click/action recording currently active?
+     * @param {boolean} screenRecordingActive - Is screen recording currently active?
+     * @param {boolean} hasClickData - Is there any recorded click/action data?
+     * @param {boolean} hasVideoData - Is there recorded video data available (blob or URL)?
+     * @param {number|null} activeTabId - The ID of the tab being recorded, or null.
+     * @param {boolean} hasAiResults - Are there results currently displayed in the AI textarea?
+     */
+    function updateButtonStates(clickRecordingActive, screenRecordingActive, hasClickData, hasVideoData, activeTabId, hasAiResults) {
         const canStartSomething = !clickRecordingActive && !screenRecordingActive;
         const isAnythingRecording = clickRecordingActive || screenRecordingActive;
 
@@ -43,14 +59,22 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update based on hasVideoData flag
         downloadVideoBtn.disabled = !hasVideoData || isAnythingRecording; // Enable only if video exists (flag) and not recording
 
-        // Generated Steps UI
-        // Enable Generate button only if stopped, has video, and has click data
-        generateStepsBtn.disabled = isAnythingRecording || !hasVideoData || !hasClickData;
-        // Enable Copy button only if there are steps in the textarea
-        copyStepsBtn.disabled = !hasGeneratedSteps;
+        // AI Magic UI
+        // Enable AI Generate button only if stopped, has video, and has click data
+        aiGenerateBtn.disabled = isAnythingRecording || !hasVideoData || !hasClickData;
+        // Enable AI Copy button only if there are AI results in the textarea
+        aiCopyBtn.disabled = !hasAiResults;
     }
 
-    // Function to update UI elements based on state
+    /**
+     * Updates the entire popup UI based on the state received from the background script.
+     * This includes the recorded clicks textarea, status indicators, and button states.
+     * @param {boolean} isRecording - Whether click/action recording is active.
+     * @param {Array<Object>} recordedData - The array of recorded click/input events.
+     * @param {number|null} activeTabId - The ID of the tab being recorded, or null.
+     * @param {boolean} isScreenRecording - Whether screen recording is active.
+     * @param {boolean} hasVideo - Whether video data (blob or URL) is available.
+     */
     function updateUI(isRecording, recordedData, activeTabId, isScreenRecording, hasVideo) {
         // Add log to check received video state
         console.log('[Popup] updateUI called. isScreenRecording:', isScreenRecording, 'hasVideo:', hasVideo);
@@ -64,10 +88,9 @@ document.addEventListener('DOMContentLoaded', () => {
                  const before = item.beforeValue === '' ? '[Empty]' : item.beforeValue;
                  const after = item.afterValue === '' ? '[Empty]' : item.afterValue;
                 return `Input Change: ${item.selector}\n  Before: ${before || 'N/A'}\n  After: ${after || 'N/A'}\n---`;
-            } else {
-                 // Default to click type if type is missing or different
-                 const text = item.text === '' ? '[Empty]' : item.text;
-                 return `Clicked: ${item.selector}\n  Text: ${text || 'N/A'}\n---`;
+            } else if (item.type === 'click') {
+                // Just indicate a click occurred, as DOM structure is too large for display
+                return `Clicked (DOM captured)\n---`; 
             }
         }).join('\n');
 
@@ -81,33 +104,11 @@ document.addEventListener('DOMContentLoaded', () => {
         screenStatusIndicator.className = `indicator ${screenState}`;
         screenStatusIndicator.setAttribute('aria-label', `Screen recording ${screenState}`);
 
-        // Check if generated steps exist for button state
-        const hasGeneratedSteps = generatedStepsTextarea.value.trim().length > 0;
+        // Check if AI results exist for button state
+        const hasAiResults = aiResultsTextarea.value.trim().length > 0;
 
         // --- Use the new button state management function ---
-        updateButtonStates(isRecording, isScreenRecording, hasClickData, hasVideo, activeTabId, hasGeneratedSteps);
-
-        // Load stored steps if available (and not currently recording)
-        if (!isRecording && !isScreenRecording) {
-            chrome.storage.local.get(['generatedSteps'], (result) => {
-                if (chrome.runtime.lastError) {
-                    console.error("Error getting stored steps:", chrome.runtime.lastError);
-                    generatedStepsTextarea.value = '';
-                    copyStepsBtn.disabled = true;
-                    // Re-run button state update even on error, with empty steps
-                    updateButtonStates(isRecording, isScreenRecording, hasClickData, hasVideo, activeTabId, false);
-                    return;
-                }
-                const steps = result.generatedSteps || '';
-                generatedStepsTextarea.value = steps;
-                // Update button states again after potentially loading steps
-                updateButtonStates(isRecording, isScreenRecording, hasClickData, hasVideo, activeTabId, steps.trim().length > 0);
-            });
-        } else {
-             // Disable buttons while recording is active
-             const hasGeneratedStepsWhileRecording = generatedStepsTextarea.value.trim().length > 0;
-             updateButtonStates(isRecording, isScreenRecording, hasClickData, hasVideo, activeTabId, hasGeneratedStepsWhileRecording);
-         }
+        updateButtonStates(isRecording, isScreenRecording, hasClickData, hasVideo, activeTabId, hasAiResults);
 
         recordedClicksTextarea.scrollTop = recordedClicksTextarea.scrollHeight;
     }
@@ -156,16 +157,48 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     downloadBtn.addEventListener('click', () => {
-        chrome.runtime.sendMessage({ action: 'getRecordedData' }, response => {
+        console.log("[Popup] Download Events button clicked. Requesting download from background.");
+        // Disable button temporarily?
+        downloadBtn.disabled = true; 
+        chrome.runtime.sendMessage({ action: 'downloadEventsAction' }, response => {
             if (chrome.runtime.lastError) {
-                console.error("Error getting data for download:", chrome.runtime.lastError.message);
+                console.error("[Popup] Error sending download events request:", chrome.runtime.lastError.message);
+                displayStatusMessage(`Error initiating download: ${chrome.runtime.lastError.message}`, 'error');
+                // Re-enable button on error
+                chrome.runtime.sendMessage({ action: 'getInitialState' }, (state) => {
+                    if (state) downloadBtn.disabled = !state.recordedData?.length > 0 || state.isScreenRecording || state.isRecording;
+                });
                 return;
             }
-            if (response && response.data) {
-                downloadData(response.data);
+            // Check if response is successful AND contains the text content
+            if (response && response.success && typeof response.textContent === 'string') {
+                console.log("[Popup] Received events content from background. Creating blob and initiating download.");
+                try {
+                    const blob = new Blob([response.textContent], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'recorded_events.txt';
+                    document.body.appendChild(a); // Required for Firefox trigger
+                    a.click();
+                    document.body.removeChild(a); // Clean up the element
+                    URL.revokeObjectURL(url); // Clean up the blob URL
+                    displayStatusMessage("Download started... Check your browser downloads.", 'success');
+                 } catch (e) {
+                     console.error("[Popup] Error creating blob or initiating download:", e);
+                     displayStatusMessage(`Error creating download file: ${e.message}`, 'error');
+                 }
             } else {
-                console.error("No data received for download.");
+                const errorMsg = response?.error || (typeof response.textContent !== 'string' ? 'Invalid content received' : 'Unknown error');
+                console.error("[Popup] Background reported error or invalid content for events download:", errorMsg);
+                displayStatusMessage(`Download failed: ${errorMsg}`, 'error');
+                  // Re-enable button on error
+                  chrome.runtime.sendMessage({ action: 'getInitialState' }, (state) => {
+                     if (state) downloadBtn.disabled = !state.recordedData?.length > 0 || state.isScreenRecording || state.isRecording;
+                 });
             }
+            // Re-enable button after response, actual state handled by background via updatePopup
+            // downloadBtn.disabled = false; // Removed redundant re-enable logic
         });
     });
 
@@ -216,49 +249,63 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (state) downloadVideoBtn.disabled = !state.hasVideo || state.isScreenRecording || state.isRecording;
                 });
             }
-            // REMOVED: All logic related to receiving URL, creating blob URL, download, and revocation
+            // State will be updated by background via 'updatePopup'
+            // No need to manually re-enable here.
         });
     });
 
-    // --- Listener for Generate Steps Button ---
-    generateStepsBtn.addEventListener('click', () => {
-        console.log('[Popup] Generate Steps button clicked.');
-        // Disable button immediately to prevent multiple clicks
-        generateStepsBtn.disabled = true;
-        displayStatusMessage('Generating steps with AI...', 'info'); // Show feedback
-        chrome.runtime.sendMessage({ action: 'generateStepsWithAI' }, response => {
+    // --- NEW: AI Magic Event Listeners ---
+    aiGenerateBtn.addEventListener('click', () => {
+        const userPrompt = aiPromptInput.value.trim(); // Get user prompt
+        console.log('[Popup] AI Generate button clicked. User Prompt:', userPrompt);
+
+        // Disable button and show status
+        aiGenerateBtn.disabled = true;
+        aiCopyBtn.disabled = true; // Disable copy while generating
+        aiResultsTextarea.value = 'Generating with AI...';
+        displayStatusMessage('Generating with AI...', 'info');
+
+        // Send message to background to start AI generation
+        chrome.runtime.sendMessage({ action: 'generateWithAiMagic', userPrompt: userPrompt }, response => {
             if (chrome.runtime.lastError) {
-                console.error("[Popup] Error sending generate steps message:", chrome.runtime.lastError.message);
-                displayStatusMessage(`Error starting generation: ${chrome.runtime.lastError.message}`, 'error');
-                // Re-enable button on error if appropriate (depends on background state)
-                // We rely on the next 'updatePopup' message to set the correct state.
+                console.error("[Popup] Error sending generateWithAiMagic message:", chrome.runtime.lastError.message);
+                displayStatusMessage(`Error starting AI generation: ${chrome.runtime.lastError.message}`, 'error');
+                aiResultsTextarea.value = 'Error starting generation.';
+                // Re-enable button on error - might need state check
+                // For simplicity, we rely on the next state update or manual trigger
+                // aiGenerateBtn.disabled = false; // Consider re-enabling based on state check
             } else if (response && !response.success) {
-                console.error("[Popup] Background reported error during generation:", response.error);
-                displayStatusMessage(`Error generating steps: ${response.error}`, 'error');
+                console.error("[Popup] Background reported error during AI generation:", response.error);
+                displayStatusMessage(`Error generating AI results: ${response.error}`, 'error');
+                aiResultsTextarea.value = `Error: ${response.error}`;
+                 // Re-enable button on error
+                 // aiGenerateBtn.disabled = false; // Consider re-enabling based on state check
             } else {
-                console.log('[Popup] Generate steps message sent successfully.');
-                // Background will send 'showGeneratedSteps' or 'showNotification' on completion/error
+                console.log('[Popup] generateWithAiMagic message sent successfully.');
+                // Background will send 'showAiMagicResults' or 'showNotification' on completion/error
             }
+            // Note: Buttons will be re-enabled properly when results arrive or via state updates.
         });
     });
 
-    copyStepsBtn.addEventListener('click', () => {
-        if (generatedStepsTextarea.value) {
-            navigator.clipboard.writeText(generatedStepsTextarea.value)
+    aiCopyBtn.addEventListener('click', () => {
+        if (aiResultsTextarea.value) {
+            navigator.clipboard.writeText(aiResultsTextarea.value)
                 .then(() => {
-                    // Optional: Show a temporary confirmation message
-                    const originalText = copyStepsBtn.textContent;
-                    copyStepsBtn.textContent = 'Copied!';
-                    setTimeout(() => { copyStepsBtn.textContent = originalText; }, 1500);
-                    console.log('Generated steps copied to clipboard.');
+                    const originalText = aiCopyBtn.textContent;
+                    aiCopyBtn.textContent = 'Copied!';
+                    displayStatusMessage('AI Results copied to clipboard.', 'success');
+                    setTimeout(() => {
+                        aiCopyBtn.textContent = originalText;
+                    }, 2000); // Revert text after 2 seconds
                 })
                 .catch(err => {
-                    console.error('Failed to copy steps: ', err);
-                    // Optional: Show an error message to the user
-                    displayStatusMessage('Error copying steps.', 'error');
+                    console.error('Failed to copy AI results:', err);
+                    displayStatusMessage('Failed to copy AI results.', 'error');
                 });
         }
     });
+    // --- END NEW AI Magic Event Listeners ---
 
     // Added Start Both Listener
     startBothBtn.addEventListener('click', () => {
@@ -282,39 +329,36 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- Helper function for Download ---
-    function downloadData(data) {
-        const dataArray = Array.isArray(data) ? data : [];
-        
-        if (dataArray.length === 0) {
-            console.log("No data to download.");
-            return;
+    // --- Settings Event Listeners --- //
+    saveApiKeyBtn.addEventListener('click', () => {
+        const apiKey = apiKeyInput.value.trim();
+        if (apiKey) {
+            console.log("[Popup] Save API Key button clicked.");
+            chrome.runtime.sendMessage({ action: 'saveApiKey', apiKey: apiKey }, response => {
+                if (chrome.runtime.lastError) {
+                    console.error("[Popup] Error sending saveApiKey message:", chrome.runtime.lastError.message);
+                    displayStatusMessage(`Error saving API key: ${chrome.runtime.lastError.message}`, 'error');
+                } else if (response && response.success) {
+                    console.log("[Popup] API Key saved successfully acknowledged by background.");
+                    displayStatusMessage('API Key saved successfully.', 'success');
+                    apiKeyInput.value = ''; // Clear the input field after successful save
+                } else {
+                    console.error("[Popup] Background reported error saving API key:", response?.error);
+                    displayStatusMessage(`Failed to save API key: ${response?.error || 'Unknown error'}`, 'error');
+                }
+            });
+        } else {
+            displayStatusMessage('Please enter an API key before saving.', 'warning');
         }
+    });
 
-        const formattedData = dataArray.map(item => {
-            if (item.type === 'inputChange') {
-                 const before = item.beforeValue === '' ? '[Empty]' : item.beforeValue;
-                 const after = item.afterValue === '' ? '[Empty]' : item.afterValue;
-                return `Type: Input Change\nSelector: ${item.selector}\nBefore Value: ${before || 'N/A'}\nAfter Value: ${after || 'N/A'}`; 
-            } else {
-                 const text = item.text === '' ? '[Empty]' : item.text;
-                 // Assume click type if not inputChange
-                 return `Type: Click\nSelector: ${item.selector}\nText: ${text || 'N/A'}`; 
-            }
-        }).join('\n---\n'); // Separate entries clearly in the file
-        
-        const blob = new Blob([formattedData], { type: 'text/plain;charset=utf-8' }); // Specify charset
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'recorded_events.txt'; // Changed filename to reflect different event types
-        document.body.appendChild(a); // Required for Firefox
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    // --- Listener for updates from Background Script (Modified) ---
+    /**
+     * Listener for messages from the background script.
+     * Handles UI updates, displays AI results, and shows notifications.
+     * @param {Object} message - The message object received.
+     * @param {chrome.runtime.MessageSender} sender - Information about the message sender.
+     * @param {function} sendResponse - Function to call to send a response (optional).
+     */
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.action === 'updatePopup') {
             console.log('[Popup] Received updatePopup message:', message);
@@ -325,47 +369,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 message.isScreenRecording,
                 message.hasVideo // Pass the boolean flag
             );
-            // Also update steps if they are included in the update message
-            if (message.generatedSteps !== undefined) {
-                 const steps = message.generatedSteps || '';
-                 generatedStepsTextarea.value = steps;
-                 // Get current state to update buttons correctly (already done by updateUI call above)
-                 // updateButtonStates(... using message data ...);
-            }
         } else if (message.action === 'showGeneratedSteps') {
-            console.log('[Popup] Received generated steps');
-            const steps = message.steps || 'No steps generated.';
-            generatedStepsTextarea.value = steps;
-            // Update button states after receiving steps - get fresh state
+            // This message is no longer used for the primary display
+            console.log('[Popup] Received deprecated showGeneratedSteps message.');
+        } else if (message.action === 'showAiMagicResults') { // NEW: Handle AI Magic results
+            console.log('[Popup] Received AI Magic results');
+            const results = message.results || 'No results generated.';
+            aiResultsTextarea.value = results;
+            aiResultsTextarea.scrollTop = aiResultsTextarea.scrollHeight;
+            displayStatusMessage('AI generation complete.', 'success');
+            // Update button states after receiving results - get fresh state
             chrome.runtime.sendMessage({ action: 'getInitialState' }, (response) => {
                  if (response) {
-                     // Use the hasVideo flag from the fresh state
                      const hasClickData = Array.isArray(response.recordedData) && response.recordedData.length > 0;
-                     updateButtonStates(response.isRecording, response.isScreenRecording, hasClickData, response.hasVideo, response.activeTabId, steps.trim().length > 0);
+                     updateButtonStates(response.isRecording, response.isScreenRecording, hasClickData, response.hasVideo, response.activeTabId, results.trim().length > 0);
                  } else {
                       // Fallback if state fetch fails
-                      copyStepsBtn.disabled = steps.trim().length === 0;
+                      aiCopyBtn.disabled = results.trim().length === 0;
+                      // Keep generate button disabled until next successful state check?
                  }
             });
-            generatedStepsTextarea.scrollTop = generatedStepsTextarea.scrollHeight;
-            displayStatusMessage('Analysis complete. Steps generated.', 'success');
         } else if (message.action === 'showNotification') {
             console.log('[Popup] Received notification:', message.message);
             displayStatusMessage(message.message, message.type || 'info');
         }
     });
 
-    // --- Initial request for state when popup opens (Modified) ---
+    /**
+     * Requests the initial state from the background script when the popup opens
+     * and updates the UI accordingly.
+     */
     chrome.runtime.sendMessage({ action: 'getInitialState' }, (response) => {
         if (chrome.runtime.lastError) {
             console.error("Error getting initial state:", chrome.runtime.lastError.message);
              updateUI(false, [], null, false, false); // Update with default empty state
-             // Check for stored steps on initial load error
-             chrome.storage.local.get(['generatedSteps'], (result) => {
-                 const steps = result.generatedSteps || '';
-                 generatedStepsTextarea.value = steps;
-                 updateButtonStates(false, false, false, false, null, steps.trim().length > 0);
-             });
              return;
         }
         if (response) {
@@ -377,30 +414,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 response.isScreenRecording,
                 response.hasVideo // Use the boolean flag
             );
-            // Also load initial steps
-            chrome.storage.local.get(['generatedSteps'], (result) => {
-                 const steps = result.generatedSteps || '';
-                 generatedStepsTextarea.value = steps;
-                 // Update buttons after getting initial state AND steps
-                 const hasClickData = Array.isArray(response.recordedData) && response.recordedData.length > 0;
-                 updateButtonStates(response.isRecording, response.isScreenRecording, hasClickData, response.hasVideo, response.activeTabId, steps.trim().length > 0);
-            });
+            // Update buttons after getting initial state
+            const hasClickData = Array.isArray(response.recordedData) && response.recordedData.length > 0;
+            const hasAiResults = aiResultsTextarea.value.trim().length > 0; // Check existing results on load
+            updateButtonStates(response.isRecording, response.isScreenRecording, hasClickData, response.hasVideo, response.activeTabId, hasAiResults);
         } else {
             console.warn("No initial state received from background script.");
             updateUI(false, [], null, false, false);
-             // Check for stored steps on initial load warning
-             chrome.storage.local.get(['generatedSteps'], (result) => {
-                 const steps = result.generatedSteps || '';
-                 generatedStepsTextarea.value = steps;
-                 updateButtonStates(false, false, false, false, null, steps.trim().length > 0);
-             });
         }
     });
 
     // --- Get reference to status message div --- 
     const statusMessageDiv = document.getElementById('statusMessage');
 
-    // Function to display status messages
+    /**
+     * Displays a status message to the user in the dedicated status div.
+     * @param {string} message - The message text to display.
+     * @param {'info'|'error'|'success'} [type='info'] - The type of message, used for styling.
+     */
     function displayStatusMessage(message, type = 'info') { // type can be 'info', 'error', 'success'
         const statusDiv = document.getElementById('statusMessage'); // Get fresh reference inside function
         if (!statusDiv) {

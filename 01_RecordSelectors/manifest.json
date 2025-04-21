@@ -24,7 +24,7 @@
   "web_accessible_resources": [
     {
       "resources": [ "step_gen_prompt.md" ],
-      "matches": [ "<all_urls>" ]
+      "matches": [ "chrome-extension://*/*" ]
     }
   ],
   "host_permissions": [

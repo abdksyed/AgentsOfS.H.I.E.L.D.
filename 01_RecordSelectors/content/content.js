@@ -1,26 +1,58 @@
+/**
+ * Checks if the click listener is currently active.
+ * @type {boolean}
+ */
 let clickListenerActive = false;
 
-// Function to get the text content of an element
-function getElementText(element) {
-    if (!element) return null;
-    // Prioritize input values, then button text, then general text content
-    if (element.value) {
-        return element.value.trim();
+/**
+ * Captures the outerHTML of the clicked element and the simplest ancestor's outerHTML
+ * within a specified number of levels, below a complexity threshold.
+ * @param {Element} element - The element that was clicked.
+ * @param {number} maxLevels - The maximum number of ancestor levels to search upwards (e.g., 3).
+ * @returns {[string|null, string|null]} An array containing two strings:
+ *   [0]: The outerHTML of the highest suitable ancestor found (or null if none).
+ *   [1]: The outerHTML of the originally clicked element (or null if element is null).
+ */
+function getTargetAndAncestorContextHTML(element, maxLevels) {
+    const clickedHTML = element?.outerHTML || null;
+    let suitableAncestorHTML = null;
+    const COMPLEXITY_THRESHOLD = 25; // Max number of descendant elements allowed in ancestor context
+
+    // Build a list of ancestors up to maxLevels
+    const ancestors = [];
+    let tempElement = element;
+    for (let i = 0; i <= maxLevels; i++) {
+        if (!tempElement) break;
+        ancestors.push(tempElement); // Store the element itself
+        tempElement = tempElement.parentElement;
     }
-    if (element.innerText) {
-        return element.innerText.trim();
+
+    // Iterate from the highest desired ancestor downwards (ancestors[3], ancestors[2], ancestors[1])
+    for (let level = maxLevels; level >= 1; level--) {
+        const ancestorElement = ancestors[level];
+        if (ancestorElement) {
+             // Check complexity: number of descendant elements
+            const descendantCount = ancestorElement.querySelectorAll('*').length;
+            // console.log(`Level ${level} ancestor: ${ancestorElement.tagName}, Descendants: ${descendantCount}`);
+
+            if (descendantCount < COMPLEXITY_THRESHOLD) {
+                suitableAncestorHTML = ancestorElement.outerHTML;
+                // console.log(`Selected ancestor at level ${level}`);
+                break; // Found the highest suitable ancestor
+            }
+        }
     }
-    if (element.textContent) {
-        return element.textContent.trim();
-    }
-     if (element.alt) { // For images
-        return element.alt.trim();
-    }
-    return null;
+    
+    return [suitableAncestorHTML, clickedHTML];
 }
 
-// Function to generate a CSS selector for the clicked element only.
-// Prioritizes ID, then classes, then just the tag name.
+/**
+ * Generates a basic CSS selector for a given element.
+ * Prioritizes ID, then classes, then the element's tag name.
+ * Escapes special CSS characters in IDs and class names.
+ * @param {Element} element - The HTML element to generate a selector for.
+ * @returns {string|null} A CSS selector string, or null if the input is not a valid element.
+ */
 function getCssSelector(element) {
     if (!(element instanceof Element)) return null;
 
@@ -46,7 +78,14 @@ function getCssSelector(element) {
     return selector;
 }
 
-// Function to handle the blur event on input fields
+/**
+ * Handles the 'blur' event on input fields to record changes.
+ * Sends a message to the background script if the input value has changed
+ * since the corresponding 'focus' or 'click' event.
+ * @param {FocusEvent} event - The blur event object.
+ * @param {string} initialValue - The value of the input field when it was focused/clicked.
+ * @param {string} selector - The CSS selector for the input element.
+ */
 function handleInputBlur(event, initialValue, selector) {
     const finalValue = event.target.value;
     // Only record if the value actually changed
@@ -67,22 +106,30 @@ function handleInputBlur(event, initialValue, selector) {
     }
 }
 
-// The click handler function
+/**
+ * Handles click events on the document when the listener is active.
+ * Captures DOM context (clicked element and ancestor HTML), records the click,
+ * and attaches a blur listener to input/textarea elements.
+ * @param {MouseEvent} event - The click event object.
+ */
 function handleDocumentClick(event) {
     if (!clickListenerActive) return; // Should not happen if listener is removed correctly
 
     const targetElement = event.target;
-    const selector = getCssSelector(targetElement);
-    // For inputs/textareas, `text` will be the value at the time of the click
-    const text = targetElement.value !== undefined ? targetElement.value.trim() : getElementText(targetElement);
+    // const selector = getCssSelector(targetElement);
+    // const text = targetElement.value !== undefined ? targetElement.value.trim() : getElementText(targetElement);
 
-    console.log('Click recorded:', { selector, text });
+    // NEW: Get DOM structure of element and 3 ancestors
+    const domStructure = getTargetAndAncestorContextHTML(targetElement, 3);
 
-    // Send the initial click data to the background script
+    console.log('Click recorded:', { domStructure });
+
+    // Send the new DOM structure data to the background script
     chrome.runtime.sendMessage({ 
         action: 'recordClick',
-        selector: selector,
-        text: text // Send value at time of click
+        // selector: selector, // No longer sending simple selector
+        // text: text // No longer sending simple text
+        domStructure: domStructure // Send array of HTML strings
     }, response => {
          if (chrome.runtime.lastError) {
             console.error("Error sending click data:", chrome.runtime.lastError.message);
@@ -94,14 +141,19 @@ function handleDocumentClick(event) {
     // If the clicked element is an input or textarea, add a blur listener
     const tagName = targetElement.tagName.toLowerCase();
     if (tagName === 'input' || tagName === 'textarea') {
-        const initialValue = text; // Value at the time of the click
-        console.log(`Attaching blur listener to ${selector} with initial value:`, initialValue);
-        // Add a one-time blur listener
-        targetElement.addEventListener('blur', (blurEvent) => handleInputBlur(blurEvent, initialValue, selector), { once: true });
+        const initialValue = targetElement.value; // Get current value directly
+        const selectorForInput = getCssSelector(targetElement); // Still need selector for input change tracking
+        console.log(`Attaching blur listener to ${selectorForInput} with initial value:`, initialValue);
+        // Add a one-time blur listener, pass the selector
+        targetElement.addEventListener('blur', (blurEvent) => handleInputBlur(blurEvent, initialValue, selectorForInput), { once: true });
     }
 }
 
-// Function to add the click listener
+/**
+ * Adds the global click listener to the document.
+ * Uses the capture phase to ensure clicks are caught early.
+ * Sets the `clickListenerActive` flag to true.
+ */
 function addClickListener() {
     if (!clickListenerActive) {
         document.addEventListener('click', handleDocumentClick, true); // Use capture phase
@@ -110,7 +162,10 @@ function addClickListener() {
     }
 }
 
-// Function to remove the click listener
+/**
+ * Removes the global click listener from the document.
+ * Sets the `clickListenerActive` flag to false.
+ */
 function removeClickListener() {
     if (clickListenerActive) {
         document.removeEventListener('click', handleDocumentClick, true);
@@ -119,7 +174,10 @@ function removeClickListener() {
     }
 }
 
-// Listen for messages from the background script
+/**
+ * Listener for messages from the background script or popup.
+ * Handles 'startListening' and 'stopListening' actions.
+ */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Message received in content script:", message);
     if (message.action === 'startListening') {
@@ -131,7 +189,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else {
         sendResponse({ success: false, error: 'Unknown action' });
     }
-    // Indicate asynchronous response potentially needed, though maybe not strictly required here
+    // Keep `return true;` if any message handling becomes truly asynchronous in the future.
     // return true;
 });
 

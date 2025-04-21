@@ -163,3 +163,49 @@ button#closePopup:hover:not(:disabled) {
      padding-top: 10px;
      margin-top: 5px;
 }
+
+/* Styles for the AI Magic section */
+.ai-magic-section {
+    display: flex;
+    flex-direction: column; /* Stack elements vertically */
+    gap: 8px; /* Spacing between elements */
+    border-top: 1px solid #eee; /* Separator line */
+    padding-top: 10px;
+    margin-top: 5px;
+}
+
+.ai-magic-section label {
+    font-weight: bold;
+    margin-bottom: -5px; /* Reduce gap below label */
+}
+
+.ai-magic-section label[for="ai-prompt"] {
+    font-weight: normal; /* Normal weight for specific input label */
+    margin-top: 5px;
+}
+
+.ai-magic-section input[type="text"] {
+    width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.ai-magic-section textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 80px;
+    box-sizing: border-box;
+    margin-top: -5px; /* Adjust spacing */
+}
+
+.ai-magic-section button {
+    align-self: flex-start; /* Align button to the start */
+    margin-top: 5px; /* Space above button */
+}
+
+/* Ensure the main AI Magic label has more space */
+.ai-magic-section > label:first-of-type {
+    margin-bottom: 5px;
+}

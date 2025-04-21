@@ -1,12 +1,23 @@
 // Offscreen document logic for media recording
 
+/** @type {MediaRecorder | undefined} */
 let recorder;
+/** @type {Blob[]} */
 let data = [];
+/** @type {MediaStream | null} */
 let displayStream = null; // Keep track of the display stream
+/** @type {MediaStream | null} */
 let audioStream = null; // Keep track of the user audio stream
+/** @type {MediaStream | null} */
 let finalStream = null; // Combined stream for the recorder
-let inactiveHandler = null; // To store the event handler function
 
+/**
+ * Handles messages sent from other extension contexts (background, popup).
+ * Primarily listens for 'start-recording' and 'stop-recording' commands.
+ * @param {any} message - The message received.
+ * @param {chrome.runtime.MessageSender} sender - Information about the sender.
+ * @param {function} sendResponse - Function to send a response.
+ */
 chrome.runtime.onMessage.addListener(async (message) => {
   if (message.target !== 'offscreen') {
     return; // Ignore messages not intended for the offscreen document
@@ -19,22 +30,21 @@ chrome.runtime.onMessage.addListener(async (message) => {
     case 'stop-recording':
       stopRecording();
       break;
-    case 'revoke-blob-url':
-      console.log('[Offscreen] Received request to revoke Blob URL:', message.url);
-      try {
-        URL.revokeObjectURL(message.url);
-        console.log('[Offscreen] Blob URL revoked successfully:', message.url);
-        // Optionally, close the offscreen document after revoking
-        // window.close(); // Consider if this is the right place
-      } catch (e) {
-        console.error('[Offscreen] Error revoking Blob URL:', e);
-      }
-      break;
     default:
       console.warn(`Unexpected message type received: ${message.type}`);
   }
 });
 
+/**
+ * Starts the screen and potentially audio recording process.
+ * 1. Requests microphone access (optional).
+ * 2. Requests display media (screen capture) access.
+ * 3. Combines streams if audio is available.
+ * 4. Sets up a MediaRecorder with appropriate codecs.
+ * 5. Attaches event listeners for data and stop events.
+ * 6. Starts the recorder.
+ * 7. Sends confirmation or error messages back to the background script.
+ */
 async function startRecording() {
   if (recorder?.state === 'recording') {
     console.warn('[Offscreen] Recording already in progress.');
@@ -64,7 +74,6 @@ async function startRecording() {
     displayStream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
       // Do not request audio here, we handle mic separately
-      // audio: true 
     });
     console.log('[Offscreen] Screen capture access granted.');
 
@@ -81,6 +90,11 @@ async function startRecording() {
 
     // Define the inactive handler - attach to video track 'onended'
     const videoTrack = finalStream.getVideoTracks()[0];
+    /**
+     * Handles the 'onended' event for the video track.
+     * This usually occurs when the user stops sharing their screen via the browser UI.
+     * If the recorder is still active, it attempts to stop it gracefully.
+     */
     videoTrack.onended = () => {
       console.log('[Offscreen] Video track ended (likely user stopped sharing).');
       // If the recorder is still in the 'recording' state when the stream becomes inactive,
@@ -97,18 +111,16 @@ async function startRecording() {
 
     // --- Codec Selection --- 
     let options;
-    const preferredType = 'video/webm;codecs=vp9,opus';
-    const fallbackTypes = [
-        'video/webm;codecs=vp8,opus',
-        'video/webm;codecs=vp8',
-        'video/webm',
-        'video/mp4' // Note: MP4 support via MediaRecorder is less common
-    ];
+    // Select codecs based on audio availability
+    const preferredVideoType = audioStream ? 'video/webm;codecs=vp9,opus' : 'video/webm;codecs=vp9';
+    const fallbackVideoTypes = audioStream
+        ? ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']
+        : ['video/webm;codecs=vp8', 'video/webm', 'video/mp4']; // Fallbacks without audio
 
-    if (MediaRecorder.isTypeSupported(preferredType)) {
-        options = { mimeType: preferredType };
+    if (MediaRecorder.isTypeSupported(preferredVideoType)) {
+        options = { mimeType: preferredVideoType };
     } else {
-        const supportedType = fallbackTypes.find(type => MediaRecorder.isTypeSupported(type));
+        const supportedType = fallbackVideoTypes.find(type => MediaRecorder.isTypeSupported(type));
         if (supportedType) {
             options = { mimeType: supportedType };
             console.log(`[Offscreen] Preferred format not supported, using ${supportedType}`);
@@ -122,12 +134,26 @@ async function startRecording() {
     recorder = new MediaRecorder(finalStream, options);
 
     data = [];
+    /**
+     * Handles the 'ondataavailable' event from the MediaRecorder.
+     * Pushes the received data chunk (Blob) into the `data` array.
+     * @param {BlobEvent} event - The event containing the data chunk.
+     */
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
         data.push(event.data);
       }
     };
 
+    /**
+     * Handles the 'onstop' event from the MediaRecorder.
+     * 1. Stops all media stream tracks.
+     * 2. Creates a Blob from the recorded data chunks.
+     * 3. Creates a Blob URL for the video.
+     * 4. Sends a message to the background script containing the Blob URL
+     *    or an error message if something went wrong.
+     * 5. Cleans up the data array.
+     */
     recorder.onstop = async () => {
       console.log('[Offscreen] recorder.onstop event fired. Recorder state:', recorder?.state);
       console.log('[Offscreen] Data chunks received:', data.length);
@@ -169,7 +195,8 @@ async function startRecording() {
 
       // Send the result (URL or error) back to the background script
       const messagePayload = {
-          type: errorMessage ? 'recording-error' : 'recording-stopped',
+          // Ensure type is 'recording-error' if URL is null, even if no specific error message
+          type: (errorMessage || !url) ? 'recording-error' : 'recording-stopped',
           target: 'background',
           url: url, // Will be null if error occurred or no data
           error: errorMessage // Include specific error message
@@ -221,6 +248,11 @@ async function startRecording() {
   }
 }
 
+/**
+ * Stops the MediaRecorder if it's currently recording or paused.
+ * This triggers the `onstop` event handler.
+ * Also calls `stopMediaStreams` as a safeguard.
+ */
 async function stopRecording() {
   if (!recorder) {
     console.warn('[Offscreen] stopRecording called but recorder is not initialized.');
@@ -239,7 +271,10 @@ async function stopRecording() {
   stopMediaStreams();
 }
 
-// Helper function to stop all tracks on existing streams
+/**
+ * Helper function to stop all tracks on all active media streams
+ * (display, audio, combined) and reset the stream variables to null.
+ */
 function stopMediaStreams() {
   console.log('[Offscreen] Stopping media stream tracks...');
   finalStream?.getTracks().forEach(track => track.stop());
