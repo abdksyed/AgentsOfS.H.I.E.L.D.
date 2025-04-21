@@ -1,0 +1,23 @@
+{
+  "name": "01_recordselectors",
+  "version": "1.0.0",
+  "description": "This Chrome extension records clicks, inputs, and screen activity on a webpage, capturing context and using AI for step generation.",
+  "main": "dist/background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc"
+  },
+  "keywords": [
+    "chrome-extension",
+    "typescript",
+    "recorder",
+    "ai",
+    "gemini"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "typescript": "^5.4.5"
+  }
+}

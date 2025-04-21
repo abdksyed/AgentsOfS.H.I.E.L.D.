@@ -1,36 +1,46 @@
 /** @type {boolean} - Whether click/input recording is active */
-let isRecording = false;
+let isRecording: boolean = false;
 /** @type {Array<Object>} - Array storing recorded click and input change events */
-let recordedData = [];
+let recordedData: Array<any> = []; // Use 'any' for now, can define an interface later
 /** @type {number | null} - ID of the tab currently being recorded for clicks/inputs */
-let activeTabId = null;
+let activeTabId: number | null = null;
 
 // State for screen recording
 /** @type {boolean} - Whether screen recording is active */
-let isScreenRecording = false;
+let isScreenRecording: boolean = false;
 /** @type {number | null} - ID of the tab targeted for screen recording (may differ from active media stream tab) */
-let screenRecordingTabId = null;
+let screenRecordingTabId: number | null = null;
 /** @type {string | null} - Blob URL for the latest completed screen recording */
-let recordedVideoUrl = null;
+let recordedVideoUrl: string | null = null;
 /** @type {number | null} - Timer ID for revoking the recordedVideoUrl if unused */
-let screenRecordingCleanupTimer = null;
+let screenRecordingCleanupTimer: number | null = null; // setTimeout returns a number in Node/browsers
 /** @type {Blob | null} - The actual Blob data for the latest completed screen recording */
-let recordedVideoBlob = null;
+let recordedVideoBlob: Blob | null = null;
+
+// Add type for GEMINI_API_KEY if it's managed globally
+let GEMINI_API_KEY: string | null = null; // Assuming it's loaded elsewhere, potentially async
+
+// Add state for AI generation
+let isAiGenerating: boolean = false;
+let lastAiResults: string | null = null;
 
 // --- Constants ---
-const OFFSCREEN_DOCUMENT_PATH = 'offscreen/offscreen.html';
-const VIDEO_CLEANUP_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+const OFFSCREEN_DOCUMENT_PATH: string = 'offscreen/offscreen.html';
+const VIDEO_CLEANUP_DELAY_MS: number = 5 * 60 * 1000; // 5 minutes
 
 // --- Storage Functions ---
 /**
  * Loads the extension state (recording status, data, active tab) from local storage.
  */
-async function loadState() {
-    const result = await chrome.storage.local.get(['isRecording', 'recordedData', 'activeTabId']);
+async function loadState(): Promise<void> {
+    // Also load AI state
+    const result = await chrome.storage.local.get(['isRecording', 'recordedData', 'activeTabId', 'isAiGenerating', 'lastAiResults']);
     isRecording = result.isRecording || false;
     recordedData = result.recordedData || [];
     activeTabId = result.activeTabId || null;
-    console.log('Initial state loaded:', { isRecording, recordedData, activeTabId });
+    isAiGenerating = result.isAiGenerating || false;
+    lastAiResults = result.lastAiResults || null;
+    console.log('Initial state loaded:', { isRecording, recordedData, activeTabId, isAiGenerating, lastAiResults });
     // If recording was active, ensure the listener is attached in the content script for that tab
     if (isRecording && activeTabId) {
         sendMessageToContentScript(activeTabId, { action: 'startListening' });
@@ -41,16 +51,18 @@ async function loadState() {
  * Saves the current extension state to local storage.
  * Does not save Blob URLs or Blob data.
  */
-async function saveState() { // Add screen recording state
-    // Don't save the blob URL or blob itself to storage, only keep in memory
+async function saveState(): Promise<void> { // Add screen recording state
+    // Don't save blob URL/data, but save AI state
     await chrome.storage.local.set({
         isRecording,
         recordedData,
         activeTabId,
         isScreenRecording, // Keep track if screen recording *should* be active
-        screenRecordingTabId // Keep track of the target tab
+        screenRecordingTabId, // Keep track of the target tab
+        isAiGenerating,      // Save AI generation status
+        lastAiResults        // Save last AI results (or error, or "Generating...")
     });
-    console.log('State saved:', { isRecording, recordedData, activeTabId, isScreenRecording, screenRecordingTabId });
+    console.log('State saved:', { isRecording, recordedData, activeTabId, isScreenRecording, screenRecordingTabId, isAiGenerating, lastAiResults });
 }
 
 // --- Initialization ---
@@ -66,23 +78,23 @@ loadState();
 
 // --- Offscreen Document Management ---
 /** @type {Promise<void> | null} - Tracks the creation process to prevent races */
-let creatingOffscreenDocument = null;
+let creatingOffscreenDocument: Promise<void> | null = null;
 
 /**
  * Checks if an offscreen document with the specified path already exists.
  * @param {string} path - The path of the offscreen document HTML file.
  * @returns {Promise<boolean>} True if the document exists, false otherwise.
  */
-async function hasOffscreenDocument(path) {
+async function hasOffscreenDocument(path: string): Promise<boolean> {
     // Check all existing contexts for a match.
-    const offscreenUrl = chrome.runtime.getURL(path);
+    const offscreenUrl: string = chrome.runtime.getURL(path);
     // Use chrome.runtime.getContexts() to check for the offscreen document.
     // This is the recommended approach in Manifest V3.
     const contexts = await chrome.runtime.getContexts({ 
-        contextTypes: ['OFFSCREEN_DOCUMENT'], 
+        contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT], // Use the enum value
         documentUrls: [offscreenUrl] 
     });
-    return contexts && contexts.length > 0;
+    return contexts && contexts.length > 0; // Check if the array exists and has items
 }
 
 /**
@@ -90,16 +102,18 @@ async function hasOffscreenDocument(path) {
  * Required for accessing navigator.mediaDevices.getDisplayMedia.
  * @param {string} path - The path to the offscreen document HTML file.
  */
-async function setupOffscreenDocument(path) {
+async function setupOffscreenDocument(path: string): Promise<void> {
     // If we do not have an offscreen document, create one.
     if (!(await hasOffscreenDocument(path))) {
         // Create the offscreen document, handling potential race conditions.
         if (creatingOffscreenDocument) {
             await creatingOffscreenDocument;
         } else {
+            // Use chrome.offscreen.Reason type
+            const reasons: chrome.offscreen.Reason[] = [chrome.offscreen.Reason.USER_MEDIA];
             creatingOffscreenDocument = chrome.offscreen.createDocument({
                 url: path,
-                reasons: ['USER_MEDIA'],
+                reasons: reasons,
                 justification: 'Recording tab media stream',
             });
             await creatingOffscreenDocument;
@@ -116,11 +130,11 @@ async function setupOffscreenDocument(path) {
  * Sends a message to the popup window, if it's open.
  * @param {Object} message - The message object to send.
  */
-async function sendMessageToPopup(message) {
+async function sendMessageToPopup(message: any): Promise<void> { // Use 'any' for message type for now
     try {
         await chrome.runtime.sendMessage(message);
         console.log("Sent message to popup:", message);
-    } catch (error) {
+    } catch (error: any) { // Type the error as any
         // Handle error (e.g., popup is not open)
         if (error.message.includes("Could not establish connection") || 
             error.message.includes("Receiving end does not exist")) {
@@ -136,11 +150,11 @@ async function sendMessageToPopup(message) {
  * @param {number} tabId - The ID of the target tab.
  * @param {Object} message - The message object to send.
  */
-async function sendMessageToContentScript(tabId, message) {
+async function sendMessageToContentScript(tabId: number, message: any): Promise<void> { // Use 'any' for message type for now
     try {
         await chrome.tabs.sendMessage(tabId, message);
         console.log(`Sent message to content script in tab ${tabId}:`, message);
-    } catch (error) {
+    } catch (error: any) { // Type the error as any
          if (error.message.includes("Could not establish connection") || 
             error.message.includes("Receiving end does not exist")) {
             console.warn(`Content script in tab ${tabId} not ready or not listening. Message:`, message, "Error:", error.message);
@@ -155,10 +169,11 @@ async function sendMessageToContentScript(tabId, message) {
  * Sends the current state to the popup to update its UI.
  * Includes recording status, data, active tab, and video availability.
  */
-async function updatePopupUI() { // Make function async
-    const hasVideo = !!recordedVideoUrl || !!recordedVideoBlob; // Check if we have a URL or blob ready
-    console.log("[Background] Updating Popup UI with state:", { isRecording, activeTabId, isScreenRecording, hasVideo }); // Log hasVideo
+async function updatePopupUI(): Promise<void> { // Make function async
+    const hasVideo: boolean = !!recordedVideoUrl || !!recordedVideoBlob; // Check if we have a URL or blob ready
+    console.log("[Background] Updating Popup UI with state:", { isRecording, activeTabId, isScreenRecording, hasVideo, isAiGenerating, lastAiResults });
 
+    // Define a more specific type for the message if possible, or keep as any
     sendMessageToPopup({
         action: 'updatePopup',
         isRecording,
@@ -166,6 +181,8 @@ async function updatePopupUI() { // Make function async
         activeTabId,
         isScreenRecording,
         hasVideo, // Send boolean flag instead of URL
+        isAiGenerating, // Send AI generating status
+        lastAiResults   // Send last AI results/status
     });
 }
 
@@ -179,9 +196,9 @@ async function updatePopupUI() { // Make function async
  * @param {function} sendResponse - Function to send a response.
  * @returns {boolean} True if the response will be sent asynchronously.
  */
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void): boolean | undefined => { // Type parameters and return value
     console.log("[Background] Message received:", message, "from sender:", sender?.tab?.id ? `tab ${sender.tab.id}` : sender?.id ? `extension ${sender.id}` : 'unknown');
-    let needsAsyncResponse = false;
+    let needsAsyncResponse: boolean = false;
 
     // Combined Action
     if (message.action === 'startBothRecordings') {
@@ -196,7 +213,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 console.log("[Background] Both recordings initiated.");
                 sendResponse({ success: true });
             })
-            .catch(err => {
+            .catch((err: any) => { // Type the error as any
                 console.error("[Background] Error starting both recordings:", err);
                 // Attempt to stop anything that might have started
                 if (isRecording) stopClickRecordingInternal();
@@ -219,7 +236,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 updatePopupUI(); // Update UI reflecting stopped state & video availability
                 sendResponse({ success: true });
             })
-            .catch(err => {
+            .catch((err: any) => { // Type the error as any
                 console.error("[Background] Error stopping both recordings:", err);
                 // Attempt to clean up state even on error
                 isRecording = false;
@@ -235,7 +252,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         needsAsyncResponse = true;
         startClickRecordingInternal(sender.tab?.id)
              .then(() => sendResponse({ success: true }))
-             .catch(err => {
+             .catch((err: any) => { // Type the error as any
                  console.error("[Background] Error starting click recording:", err);
                  sendResponse({ success: false, error: err.message });
              });
@@ -286,14 +303,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === 'getInitialState') {
         // Load the latest state from storage first
         loadState().then(() => {
-             // Send initial state including video availability
+             // Send initial state including video availability and AI state
             const hasVideo = !!recordedVideoUrl || !!recordedVideoBlob;
             const responsePayload = {
                 isRecording,
                 recordedData,
                 activeTabId,
                 isScreenRecording,
-                hasVideo // Send boolean
+                hasVideo: !!recordedVideoUrl || !!recordedVideoBlob, // Calculate hasVideo here
+                isAiGenerating, // Include AI generating status
+                lastAiResults   // Include last AI results/status
             };
             console.log("[Background] Sending initial state:", responsePayload);
             sendResponse(responsePayload);
@@ -305,7 +324,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                  recordedData: [],
                  activeTabId: null,
                  isScreenRecording: false,
-                 hasVideo: false
+                 hasVideo: false,
+                 isAiGenerating: false,
+                 lastAiResults: null
              });
          });
         needsAsyncResponse = true; // Indicate async response because of loadState
@@ -388,16 +409,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
              try {
                  recordedVideoUrl = URL.createObjectURL(recordedVideoBlob);
                  // Re-set the cleanup timer for the new URL
-                 clearTimeout(screenRecordingCleanupTimer);
+                 if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer);
                  screenRecordingCleanupTimer = setTimeout(() => {
                     console.warn(`[Background] Cleaning up re-created video Blob URL and Blob after ${VIDEO_CLEANUP_DELAY_MS / 1000}s timeout.`);
                     clearVideoResources();
                     saveState();
                     updatePopupUI();
+                    if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer);
                     screenRecordingCleanupTimer = null;
                  }, VIDEO_CLEANUP_DELAY_MS);
                  console.log(`[Background] Set cleanup timer ${screenRecordingCleanupTimer} for re-created video URL.`);
-             } catch (error) {
+             } catch (error: any) {
                  console.error("[Background] Error recreating Blob URL for download:", error);
                  sendMessageToPopup({ action: 'showNotification', message: `Error preparing video for download: ${error.message}`, type: 'error' });
                  sendResponse({ success: false, error: 'Failed to recreate video URL' });
@@ -491,7 +513,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 updatePopupUI(); // Update UI (e.g., disable Generate button if needed, though callGeminiApi might do this)
                 sendResponse({ success: true }); // Respond that the process was initiated
 
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Error during Gemini API call or video fetch for generation:", error);
                 sendMessageToPopup({ action: 'showNotification', message: `Error processing video for AI: ${error.message}`, type: 'error' });
 
@@ -505,7 +527,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
                 await saveState(); // Save cleaned-up state
                 updatePopupUI(); // Update UI
-                sendResponse({ success: false, error: error.message });
+                sendResponse({ success: false, error: (error as Error).message }); // Cast to Error to access message
             }
         })(); // End async IIFE
 
@@ -538,21 +560,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const userProvidedPrompt = message.userPrompt || ""; // Get the user's prompt
 
         // Check prerequisites (same as generateStepsWithAI)
-        if (!recordedVideoUrl && !recordedVideoBlob) {
+        if (!recordedVideoBlob && !recordedVideoUrl) {
             console.error("Cannot generate steps: No video data available.");
-            sendMessageToPopup({ action: 'showNotification', message: 'Error: No video data found for analysis.', type: 'error' });
+            isAiGenerating = false;
+            lastAiResults = "Error: No video data found for analysis.";
+            saveState();
+            sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
             sendResponse({ success: false, error: 'No video data' });
             return needsAsyncResponse;
         }
         if (!recordedData || recordedData.length === 0) {
             console.error("Cannot generate steps: No click/input data available.");
-            sendMessageToPopup({ action: 'showNotification', message: 'Error: No recorded actions found for analysis.', type: 'error' });
+            isAiGenerating = false;
+            lastAiResults = "Error: No recorded actions found for analysis.";
+            saveState();
+            sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
             sendResponse({ success: false, error: 'No click data' });
             return needsAsyncResponse;
         }
 
         (async () => {
             let videoBlobToProcess = recordedVideoBlob;
+            isAiGenerating = true;
+            lastAiResults = "Generating...";
+            await saveState(); // Save generating state
+            // Notify popup immediately that generation has started
+            sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
 
             try {
                 if (!videoBlobToProcess && recordedVideoUrl) {
@@ -586,20 +619,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
                 await saveState(); // Save state reflecting URL cleanup
                 updatePopupUI();
-                sendResponse({ success: true }); // Respond that process was initiated
+                // sendResponse({ success: true }); // No longer need to send response here, message listener handles it
 
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Error during AI Magic Gemini call or video fetch:", error);
-                sendMessageToPopup({ action: 'showNotification', message: `Error processing video for AI Magic: ${error.message}`, type: 'error' });
-
+                isAiGenerating = false;
+                lastAiResults = `Error: ${error.message}`;
+                await saveState();
+                // Send error result to popup
+                sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
+                // Cleanup video URL even on error
                 if (recordedVideoUrl) {
                     console.log("Revoking video Blob URL after AI Magic error:", recordedVideoUrl);
-                    try { URL.revokeObjectURL(recordedVideoUrl); } catch(e) { console.warn("Error revoking URL on AI Magic error:", e); }
+                    try { URL.revokeObjectURL(recordedVideoUrl); } catch(e: any) { console.warn("Error revoking URL on AI Magic error:", e); }
                     recordedVideoUrl = null;
                 }
                 await saveState();
                 updatePopupUI();
-                sendResponse({ success: false, error: error.message });
+                // sendResponse({ success: false, error: error.message }); // No longer need to send response here
             }
         })();
 
@@ -614,7 +651,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Clear any pending cleanup timer first
         if (screenRecordingCleanupTimer) {
             console.log("[Background] Clearing cleanup timer:", screenRecordingCleanupTimer);
-            clearTimeout(screenRecordingCleanupTimer);
+            if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer);
             screenRecordingCleanupTimer = null;
         }
 
@@ -625,12 +662,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.log("[Background] Stored new video Blob URL.");
 
             // Set a timer to revoke the URL and clear the blob if it's not used (e.g., by Gemini or download) within a reasonable time
-            clearTimeout(screenRecordingCleanupTimer); // Clear any existing timer
+            if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer); // Clear any existing timer
             screenRecordingCleanupTimer = setTimeout(() => {
                 console.warn(`[Background] Cleaning up unused video Blob URL and Blob after ${VIDEO_CLEANUP_DELAY_MS / 1000}s timeout.`);
                 clearVideoResources(); // Use helper to clear URL and Blob
                 saveState(); // Save state after cleanup
                 updatePopupUI(); // Reflect timeout in UI
+                // No need to clear timer inside itself, just set to null
                 screenRecordingCleanupTimer = null;
             }, VIDEO_CLEANUP_DELAY_MS);
             console.log(`[Background] Set cleanup timer ${screenRecordingCleanupTimer} for video URL and Blob.`);
@@ -683,10 +721,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 console.log("[Background] Sending events file content back to popup.");
                 // Send the text content back to the popup
                 sendResponse({ success: true, textContent: fileContent }); 
-            } catch (error) {
+            } catch (error: any) {
                  console.error("[Background] Error preparing events data for download:", error);
                  sendMessageToPopup({ action: 'showNotification', message: `Error preparing download: ${error.message}`, type: 'error' });
-                 sendResponse({ success: false, error: error.message });
+                 sendResponse({ success: false, error: (error as Error).message }); // Cast to Error to access message
             }
         }
     }
@@ -704,7 +742,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // --- Gemini API Integration ---
 // Retrieve API key at runtime - never store the plain key in source control
 // Use an IIFE to handle top-level await for storage access
-let GEMINI_API_KEY = null;
 +(async () => {
     try {
         const result = await chrome.storage.local.get('geminiApiKey');
@@ -730,10 +767,16 @@ const GEMINI_API_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/mo
  * @param {Blob} blob - The Blob to convert.
  * @returns {Promise<string>} A promise that resolves with the Base64 encoded string (without the data: prefix).
  */
-function blobToBase64(blob) {
+function blobToBase64(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result.split(',')[1]); // Get only the Base64 part
+        reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+                resolve(reader.result.split(',')[1]); // Get only the Base64 part
+            } else {
+                reject(new Error('FileReader result is not a string'));
+            }
+        };
         reader.onerror = reject;
         reader.readAsDataURL(blob);
     });
@@ -746,7 +789,7 @@ function blobToBase64(blob) {
  * @param {string} [userPrompt=""] - Optional additional user-provided prompt/context.
  * @returns {Promise<string|null>} A promise that resolves with the generated steps text, or null on error.
  */
-async function callGeminiApi(videoBlob, transcriptData, userPrompt = "") {
+async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPrompt = ""): Promise<string | null> {
     if (!GEMINI_API_KEY) {
         const errorMsg = 'Gemini API Key not configured. Please set it in extension settings/storage.';
         console.warn(errorMsg);
@@ -843,6 +886,7 @@ async function callGeminiApi(videoBlob, transcriptData, userPrompt = "") {
         console.log('Gemini API response received successfully:', responseData);
 
         // 6. Process the response
+        let finalResult: string | null = null;
         if (responseData.candidates && responseData.candidates.length > 0) {
             const candidate = responseData.candidates[0];
             if (candidate.finishReason && candidate.finishReason !== 'STOP') {
@@ -856,39 +900,44 @@ async function callGeminiApi(videoBlob, transcriptData, userPrompt = "") {
             }
             
             const generatedSteps = candidate?.content?.parts?.[0]?.text;
+            finalResult = generatedSteps || null;
             if (generatedSteps) {
                 console.log('Generated Steps extracted successfully.'); // Less verbose log
                 // Send result back to the correct popup handler
-                sendMessageToPopup({ action: 'showAiMagicResults', results: generatedSteps });
+                sendMessageToPopup({ action: 'showAiMagicResults', results: finalResult });
                 // Storing these results separately might be good, or just display them
                 // chrome.storage.local.set({ generatedSteps: generatedSteps }); // Decide if you want to store this
-                return generatedSteps;
             } else {
                  console.warn('Could not extract generated steps text from Gemini response candidate.', candidate);
-                 // Send error back to the correct popup handler
-                 sendMessageToPopup({ action: 'showAiMagicResults', results: 'Error: Failed to extract steps from AI analysis response.' });
-                 sendMessageToPopup({ action: 'showNotification', message: 'Failed to extract steps from AI analysis response.', type: 'warning' });
-                 return null;
+                 finalResult = 'Error: Failed to extract steps from AI analysis response.';
             }
         } else if (responseData.promptFeedback && responseData.promptFeedback.blockReason) {
              console.warn(`Prompt blocked by Gemini API. Reason: ${responseData.promptFeedback.blockReason}`);
              // Send error back to the correct popup handler
              sendMessageToPopup({ action: 'showAiMagicResults', results: `Error: AI analysis blocked due to prompt content (Reason: ${responseData.promptFeedback.blockReason}).` });
              sendMessageToPopup({ action: 'showNotification', message: `AI analysis blocked due to prompt content (Reason: ${responseData.promptFeedback.blockReason}).`, type: 'error' });
-             return null;
+             finalResult = `Error: AI analysis blocked due to prompt content (Reason: ${responseData.promptFeedback.blockReason}).`;
          } else {
             console.warn('Gemini response received, but no valid candidates or prompt feedback found.', responseData);
             // Send error back to the correct popup handler
             sendMessageToPopup({ action: 'showAiMagicResults', results: 'Error: Received an unexpected response from AI analysis.' });
             sendMessageToPopup({ action: 'showNotification', message: 'Received an unexpected response from AI analysis.', type: 'warning' });
-            return null;
+            finalResult = 'Error: Received an unexpected response from AI analysis.';
         }
 
-    } catch (error) {
+        // Update state with final result (success or error message)
+        isAiGenerating = false;
+        lastAiResults = finalResult;
+        await saveState();
+        sendMessageToPopup({ action: 'showAiMagicResults', results: finalResult });
+        return finalResult; // Return the result string or null/error string
+
+    } catch (error: any) {
         console.error('Error calling Gemini API or processing its response:', error);
-        // Send error back to the correct popup handler
-        sendMessageToPopup({ action: 'showAiMagicResults', results: `Error during AI analysis: ${error.message}` }); 
-        sendMessageToPopup({ action: 'showNotification', message: `Error during AI analysis: ${error.message}`, type: 'error' });
+        isAiGenerating = false;
+        lastAiResults = `Error during AI analysis: ${error.message}`;
+        await saveState();
+        sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
         return null;
     }
 }
@@ -901,46 +950,65 @@ async function callGeminiApi(videoBlob, transcriptData, userPrompt = "") {
  * @param {number} [requestingTabId] - The ID of the tab initiating the request (e.g., from popup).
  * @throws {Error} If no suitable active tab is found or if screen recording is active.
  */
-async function startClickRecordingInternal(requestingTabId) {
-     console.log("[Background] Attempting to start click recording.");
-     let tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+async function startClickRecordingInternal(requestingTabId: number | undefined): Promise<void> {
+    console.log("[Background] Attempting to start click recording.");
+    let tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    // Prioritize the tab that initiated the request if provided
+    let targetTab = requestingTabId ? tabs.find(t => t.id === requestingTabId) : tabs[0];
 
-     if (tabs.length === 0 && requestingTabId) {
-         // Fallback if no active tab in current window, but request came from a specific tab (e.g., popup)
-          try {
-             const requestingTab = await chrome.tabs.get(requestingTabId);
-             if (requestingTab) {
-                 tabs = [requestingTab];
-                 console.log("[Background] Using requesting tab ID for click recording.")
-             }
-          } catch (e) {
-             console.warn("[Background] Could not get requesting tab info:", e);
-          }
-     }
-
-    if (tabs.length === 0) {
-        console.error("[Background] No suitable active tab found to start click recording.");
-        throw new Error("No active tab for click recording");
-    }
-    
-    const targetTabId = tabs[0].id;
-    
-    // Check if screen recording is already active.
-    // We simplified this check as screenRecordingTabId is null with getDisplayMedia.
-    if (isScreenRecording) {
-         console.warn(`[Background] Cannot start click recording on tab ${targetTabId} because screen recording is active.`);
-         throw new Error("Screen recording already active");
+    // If the requesting tab wasn't active/current, fall back to the first active tab
+    if (!targetTab && tabs.length > 0) {
+        targetTab = tabs[0];
     }
 
-    // Proceed if no screen recording.
-    console.log(`[Background] Proceeding with click recording start for tab ${targetTabId}.`);
-    activeTabId = targetTabId;
+    if (!targetTab?.id || targetTab.url?.startsWith('chrome://')) {
+        throw new Error('Cannot record on this page. Please select a valid webpage tab.');
+    }
+    if (isScreenRecording && screenRecordingTabId !== targetTab.id) {
+         // Allow starting click recording if screen recording is already active *on the same tab*
+        console.warn("Screen recording is active on a different tab. Click recording will start on the target tab, but this might be confusing.");
+        // Consider disallowing this? For now, proceed but warn.
+        // throw new Error('Screen recording is active on another tab. Stop it first.');
+    }
+    if (isRecording && activeTabId === targetTab.id) {
+        console.log("Already recording this tab.");
+        return; // Already recording this tab
+    }
+    if (isRecording && activeTabId !== targetTab.id) {
+         console.log(`Switching recording from tab ${activeTabId} to ${targetTab.id}`);
+         // Stop listening on the old tab
+        if(activeTabId !== null) { // add null check
+             sendMessageToContentScript(activeTabId, { action: 'stopListening' });
+        }
+    }
+
+
+    activeTabId = targetTab.id;
     isRecording = true;
-    recordedData = []; // Start always clears previous data
-    await saveState();
+    recordedData = []; // Clear previous data on new recording start
+    clearVideoResources(); // Clear any old video when starting fresh click recording
+    console.log(`Recording started for tab: ${activeTabId}, URL: ${targetTab.url}`);
+    await saveState(); // Save state immediately
+
+    // Inject content script if necessary and start listening
+    try {
+        await chrome.scripting.executeScript({
+            target: { tabId: activeTabId },
+            files: ['dist/content/content.js'], // Adjust path if using dist
+        });
+        console.log("Content script injected/ensured.");
+    } catch (err: any) {
+        console.error(`Failed to inject content script: ${err.message}`);
+        // If injection fails, stop recording
+        isRecording = false;
+        activeTabId = null;
+        await saveState();
+        throw new Error(`Failed to prepare tab for recording: ${err.message}`);
+    }
+
+    // Send message to start listening after ensuring script is there
     await sendMessageToContentScript(activeTabId, { action: 'startListening' });
-    updatePopupUI();
-    console.log("[Background] Click recording started for tab:", activeTabId);
+    updatePopupUI(); // Update UI after starting
 }
 
 /**
@@ -948,50 +1016,47 @@ async function startClickRecordingInternal(requestingTabId) {
  * Sends 'stopListening' message to the content script.
  * Sets `isRecording` state to false.
  */
-function stopClickRecordingInternal() {
-    if (activeTabId) {
+function stopClickRecordingInternal(): void {
+    if (activeTabId !== null) { // Add null check
         sendMessageToContentScript(activeTabId, { action: 'stopListening' });
-        console.log("Sent stopListening to tab:", activeTabId);
-    } else {
-         console.log("stopClickRecordingInternal called but no activeTabId.");
     }
-    isRecording = false;
-    // Don't nullify activeTabId here if we want to allow resume/clear later
-    // activeTabId = null; // Clearing this prevents resuming the same session
-    console.log("Click recording stopped internally.");
-    // State saving is handled by the caller (e.g., stopBothRecordings or the 'stopRecording' action)
+    // Don't clear activeTabId here, keep it to know which tab was last recorded
+    // activeTabId = null; 
+    if (isRecording) {
+        isRecording = false;
+        console.log("Click recording stopped.");
+        // Save state? Let combined actions handle saving.
+        // saveState();
+        // updatePopupUI(); // Let combined actions handle UI updates.
+    } else {
+         console.log("Click recording was already stopped.");
+    }
 }
 
 /**
  * Clears any stored video resources (Blob URL and Blob data).
  * Also clears the cleanup timer associated with the video URL.
  */
-function clearVideoResources() {
-    if (screenRecordingCleanupTimer) {
+function clearVideoResources(): void {
+    if (screenRecordingCleanupTimer !== null) { // Ensure null check is here
         clearTimeout(screenRecordingCleanupTimer);
         screenRecordingCleanupTimer = null;
-        console.log("Cleared video cleanup timer.");
     }
     if (recordedVideoUrl) {
-        try {
-            URL.revokeObjectURL(recordedVideoUrl);
-            console.log("Revoked video Blob URL.");
-        } catch (e) {
-            console.warn("Error revoking video Blob URL during clear:", e);
-        }
+        URL.revokeObjectURL(recordedVideoUrl);
         recordedVideoUrl = null;
     }
-    if (recordedVideoBlob) {
-        recordedVideoBlob = null;
-        console.log("Cleared video Blob data.");
-    }
+    recordedVideoBlob = null; // Clear the blob data too
+    console.log("Cleared video resources (URL, Blob, Timer).");
+    // Don't save state here, let callers decide when to persist
+    // Don't update UI here, let callers decide
 }
 
 /**
  * Initiates the screen recording process by setting up and messaging the offscreen document.
  * @throws {Error} If screen recording is already active or no active tab found.
  */
-async function startScreenRecording() {
+async function startScreenRecording(): Promise<void> {
     console.log("[Background] Initiating screen recording via offscreen document...");
     if (isScreenRecording) {
         console.warn("[Background] Screen recording is already in progress.");
@@ -1005,12 +1070,13 @@ async function startScreenRecording() {
         console.error("[Background] Could not get active tab to start screen recording.");
         throw new Error("No active tab found for screen recording.");
     }
-    screenRecordingTabId = currentTab.id;
+    screenRecordingTabId = currentTab.id as number; // Added assertion: currentTab.id should be number here
 
     // 1. Ensure the offscreen document is ready.
     await setupOffscreenDocument(OFFSCREEN_DOCUMENT_PATH);
 
     // 2. Send message to offscreen document to start the actual recording process
+    console.log("[Background] Sending 'start-recording' message to offscreen document...");
     await chrome.runtime.sendMessage({ // Send to specific extension ID if necessary
         target: 'offscreen',
         type: 'start-recording',
@@ -1032,7 +1098,7 @@ async function startScreenRecording() {
  * Stops the screen recording by sending a message to the offscreen document.
  * The actual state update happens when the 'recording-stopped' message is received back.
  */
-async function stopScreenRecording() {
+async function stopScreenRecording(): Promise<void> {
     console.log("[Background] Attempting to stop screen recording...");
     // Check if offscreen document exists before attempting to stop
     const offscreenExists = await hasOffscreenDocument(OFFSCREEN_DOCUMENT_PATH);
@@ -1135,7 +1201,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
  *                                      Set to false for a simpler format (e.g., for API). 
  * @returns {string|null} A formatted string representation of the data, or null if input is empty/invalid.
  */
-function formatRecordedDataForDownload(data, includeDom = true) {
+function formatRecordedDataForDownload(data: Array<any>, includeDom = true): string | null {
     const dataArray = Array.isArray(data) ? data : [];
 
     if (dataArray.length === 0) {
