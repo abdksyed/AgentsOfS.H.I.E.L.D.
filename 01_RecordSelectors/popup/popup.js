@@ -158,27 +158,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("Error getting video URL:", chrome.runtime.lastError.message);
                 return;
             }
-            if (response && response.url) {
+            // Use optional chaining for safer access
+            if (response?.url) {
                 const videoUrl = response.url;
-                // Use the background-provided Blob URL to trigger download
-                const a = document.createElement('a');
-                a.href = videoUrl;
-                a.download = 'recorded_screen.webm'; // Set filename
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                
-                // Revoke the Blob URL after the download link is clicked
-                console.log("[Popup] Revoking Blob URL:", videoUrl);
-                try {
-                     URL.revokeObjectURL(videoUrl);
-                } catch (e) {
-                    console.error("[Popup] Error revoking Blob URL:", e);
-                }
-                
-                // Send message to background to clear its reference (optional but good practice)
-                chrome.runtime.sendMessage({ action: 'clearRecordedVideoUrl' }); 
 
+                // Use the downloads API for more robust download and revocation
+                chrome.downloads.download({
+                    url: videoUrl,
+                    filename: 'recorded_screen.webm', // Suggest a filename
+                    saveAs: true // Prompt user for save location
+                }, (downloadId) => {
+                    if (chrome.runtime.lastError) {
+                        console.error("[Popup] Download initiation failed:", chrome.runtime.lastError.message);
+                        // Attempt to revoke URL even if download fails to start, as we have the URL
+                        try {
+                            console.log("[Popup] Attempting to revoke Blob URL after download initiation failure:", videoUrl);
+                            URL.revokeObjectURL(videoUrl);
+                            chrome.runtime.sendMessage({ action: 'clearRecordedVideoUrl' }); // Also clear background reference
+                        } catch (e) {
+                            console.error("[Popup] Error revoking Blob URL after download failure:", e);
+                        }
+                        return;
+                    }
+
+                    // Listener to revoke URL *after* download completes or fails
+                    const listener = (delta) => {
+                        if (delta.id === downloadId) {
+                            if (delta.state && (delta.state.current === 'complete' || delta.state.current === 'interrupted')) {
+                                console.log(`[Popup] Download ${delta.state.current}. Revoking Blob URL:`, videoUrl);
+                                try {
+                                    URL.revokeObjectURL(videoUrl);
+                                } catch (e) {
+                                    console.error("[Popup] Error revoking Blob URL:", e);
+                                }
+                                // Send message to background to clear its reference
+                                chrome.runtime.sendMessage({ action: 'clearRecordedVideoUrl' });
+                                // Remove the listener
+                                chrome.downloads.onChanged.removeListener(listener);
+                            }
+                        }
+                    };
+                    chrome.downloads.onChanged.addListener(listener);
+                });
             } else {
                 console.error("No video URL received for download.");
             }
