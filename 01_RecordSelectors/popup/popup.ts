@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const aiGenerateBtn = document.getElementById('ai-generate-btn') as HTMLButtonElement | null;
     const aiResultsTextarea = document.getElementById('ai-results') as HTMLTextAreaElement | null;
     const aiCopyBtn = document.getElementById('ai-copy-btn') as HTMLButtonElement | null;
+    const aiPromptSelect = document.getElementById('ai-prompt-select') as HTMLSelectElement | null;
 
     // Screen recording elements
     const screenStatusIndicator = document.getElementById('screen-status-indicator') as HTMLSpanElement | null;
@@ -48,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Settings elements
     const apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement | null;
     const saveApiKeyBtn = document.getElementById('save-api-key-btn') as HTMLButtonElement | null;
-    const statusMessageDiv = document.getElementById('status-message') as HTMLDivElement | null; // Assuming it's a div
+    const statusMessageDiv = document.getElementById('statusMessage') as HTMLDivElement | null; // Corrected ID 'statusMessage'
 
     /**
      * Updates the enabled/disabled state of all control buttons based on the current
@@ -79,7 +80,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resumeBtn) resumeBtn.disabled = clickRecordingActive || screenRecordingActive; // Can't resume if anything is recording
         if (stopBtn) stopBtn.disabled = !clickRecordingActive;
 
-        if (clearBtn) clearBtn.disabled = (!hasClickData && activeTabId === null) || isAnythingRecording;
+        // Enable Clear All if not recording AND (has clicks OR has video OR has AI results)
+        if (clearBtn) {
+            clearBtn.disabled = isAnythingRecording || (!hasClickData && !hasVideoData && !hasAiResults);
+        }
         if (downloadBtn) downloadBtn.disabled = !hasClickData || isAnythingRecording; // Enable only if has click data and not recording
 
         if (startScreenBtn) startScreenBtn.disabled = !canStartSomething || clickRecordingActive;
@@ -87,7 +91,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (downloadVideoBtn) downloadVideoBtn.disabled = !hasVideoData || isAnythingRecording; // Enable only if video exists (flag) and not recording
 
         // AI Magic UI
-        if (aiGenerateBtn) aiGenerateBtn.disabled = isAnythingRecording || !hasVideoData || !hasClickData;
+        if (aiGenerateBtn) {
+            aiGenerateBtn.disabled = isAnythingRecording || (!hasVideoData && !hasClickData);
+        }
         if (aiCopyBtn) aiCopyBtn.disabled = !hasAiResults;
     }
 
@@ -152,8 +158,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update AI button states based on isAiGenerating and results
         if (aiGenerateBtn) {
-            // Disable if anything is recording OR AI is generating OR required data is missing
-            aiGenerateBtn.disabled = isRecording || isScreenRecording || isAiGenerating || !hasVideo || !hasClickData;
+            // Debug logging for Generate button state
+            console.log('[Popup] updateUI - Generate Button State Check:',
+                {
+                    isRecording,
+                    isScreenRecording,
+                    isAiGenerating,
+                    hasVideo,
+                    hasClickData,
+                    shouldBeDisabled: isRecording || isScreenRecording || isAiGenerating || (!hasVideo && !hasClickData)
+                }
+            );
+            // Disable if anything is recording OR AI is generating OR BOTH video AND clicks are missing
+            aiGenerateBtn.disabled = isRecording || isScreenRecording || isAiGenerating || (!hasVideo && !hasClickData);
         }
         if (aiCopyBtn) {
             aiCopyBtn.disabled = !hasValidAiResults; // Enable only if there are valid results
@@ -170,13 +187,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
      // --- Helper Function for Status Messages ---
     function displayStatusMessage(message: string, type: 'info' | 'error' | 'success' = 'info'): void {
-        if (!statusMessageDiv) return;
+        if (!statusMessageDiv) {
+            console.error("[Popup] Status message div not found, message was:", message);
+            return;
+        }
+        console.log(`[Popup] Displaying status message: "${message}" (${type})`);
         statusMessageDiv.textContent = message;
         statusMessageDiv.className = `status-message ${type}`; // Apply class for styling
         statusMessageDiv.style.display = 'block'; // Make it visible
+        
+        // Ensure message is visible by scrolling to it
+        statusMessageDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        
         // Optional: Hide after a delay
         setTimeout(() => {
-            if (statusMessageDiv) statusMessageDiv.style.display = 'none';
+            if (statusMessageDiv) {
+                statusMessageDiv.style.display = 'none';
+                console.log("[Popup] Status message hidden:", message);
+            }
         }, 5000); // Hide after 5 seconds
     }
 
@@ -229,6 +257,8 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBtn.addEventListener('click', () => {
             // Clear AI results textarea locally when clearing data
             if (aiResultsTextarea) aiResultsTextarea.value = '';
+            // Also clear the user prompt input
+            if (aiPromptInput) aiPromptInput.value = '';
             chrome.runtime.sendMessage({ action: 'clearRecording' }, (response?: { success: boolean }) => { // Type response
                 if (chrome.runtime.lastError) {
                     console.error("Error sending clear message:", chrome.runtime.lastError.message);
@@ -401,7 +431,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (aiGenerateBtn) {
         aiGenerateBtn.addEventListener('click', () => {
             const userPrompt = aiPromptInput?.value || ""; // Get prompt, default to empty string if null
-            console.log("[Popup] AI Generate button clicked. Sending prompt:", userPrompt);
+            const selectedPromptFile = aiPromptSelect?.value || "step_gen_prompt.md"; // <-- Get selected prompt file, default to steps
+            console.log("[Popup] AI Generate button clicked. Sending prompt:", userPrompt, "using prompt file:", selectedPromptFile);
             aiGenerateBtn.disabled = true; // Disable while processing
             if(aiResultsTextarea) aiResultsTextarea.value = "Generating..."; // Indicate processing
             
@@ -412,7 +443,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Background script will send results via 'showAiMagicResults' message
             }
 
-            chrome.runtime.sendMessage({ action: 'generateWithAiMagic', userPrompt: userPrompt }, (response?: GenerateMagicResponse) => {
+            chrome.runtime.sendMessage({ 
+                action: 'generateWithAiMagic', 
+                userPrompt: userPrompt,
+                selectedPromptFile: selectedPromptFile // <-- Add selected prompt file to message
+            }, (response?: GenerateMagicResponse) => {
                 if (chrome.runtime.lastError) {
                     console.error("Error sending AI generate request:", chrome.runtime.lastError.message);
                     if(aiResultsTextarea) aiResultsTextarea.value = `Error: ${chrome.runtime.lastError.message}`;
@@ -484,21 +519,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saveApiKeyBtn && apiKeyInput) {
         saveApiKeyBtn.addEventListener('click', () => {
             const apiKey = apiKeyInput.value.trim();
+            console.log("[Popup] Save API key button clicked. API key length:", apiKey.length);
             if (apiKey) {
                 saveApiKeyBtn.disabled = true;
                 saveApiKeyBtn.textContent = 'Saving...';
+                console.log("[Popup] Sending saveApiKey message to background");
                 chrome.runtime.sendMessage({ action: 'saveApiKey', apiKey: apiKey }, (response?: { success: boolean; error?: string }) => {
+                     console.log("[Popup] Received saveApiKey response:", response);
                      if (saveApiKeyBtn) { // Check if button still exists
                          saveApiKeyBtn.disabled = false;
                          saveApiKeyBtn.textContent = 'Save Key';
                      }
                     if (chrome.runtime.lastError) {
-                        console.error("Error saving API key:", chrome.runtime.lastError.message);
+                        console.error("[Popup] Error saving API key:", chrome.runtime.lastError);
                         displayStatusMessage(`Error saving key: ${chrome.runtime.lastError.message}`, 'error');
                     } else if (response && response.success) {
+                        console.log("[Popup] API key saved successfully");
                         displayStatusMessage('API Key saved successfully!', 'success');
                          if (apiKeyInput) apiKeyInput.value = ''; // Clear input after successful save
                     } else {
+                        console.error("[Popup] Failed to save API key:", response);
                         displayStatusMessage(`Failed to save API key: ${response?.error || 'Unknown error'}`, 'error');
                     }
                 });

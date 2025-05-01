@@ -276,22 +276,29 @@ async function startRecording(): Promise<void> {
 }
 
 /**
- * Stops the active MediaRecorder if it exists and is recording or paused.
- * Triggers the 'onstop' event handler where the blob is processed and sent.
+ * Stops the recording process.
+ * If the recorder is active, calls its `stop()` method, which will trigger
+ * the `onstop` event handler where the blob is processed and sent.
  */
 async function stopRecording(): Promise<void> {
-  if (!recorder) {
-    console.warn('[Offscreen] stopRecording called but recorder is not initialized.');
-    return;
-  }
+  console.log('[Offscreen] Attempting to stop recorder. Current state:', recorder?.state);
 
-  console.log('[Offscreen] Stopping recorder (will trigger onstop). State:', recorder.state);
-  if (recorder.state === 'recording' || recorder.state === 'paused') {
-      recorder.stop(); // This will trigger the 'onstop' event handler
+  if (recorder && (recorder.state === 'recording' || recorder.state === 'paused')) {
+    recorder.stop(); // This will trigger the 'onstop' event handler
   } else {
-       console.warn('[Offscreen] stopRecording called, but recorder state is already', recorder.state, '. Not calling stop() again.');
+    console.warn(`[Offscreen] Stop requested, but recorder not active (state: ${recorder?.state}). Cleaning up streams if necessary.`);
+    // If recorder wasn't active, the 'onstop' event won't fire naturally.
+    // We should manually clean up streams and potentially notify background
+    // that no recording was produced or it was already stopped.
+    stopMediaStreams();
+    data = [];
+    finalStream = null;
+    displayStream = null;
+    audioStream = null;
+    recorder = undefined;
+    // Send a specific message indicating no recording was generated or stopped early?
+    // For now, relying on the fact that no 'recording-stopped' message with a URL will be sent.
   }
-
 }
 
 /**

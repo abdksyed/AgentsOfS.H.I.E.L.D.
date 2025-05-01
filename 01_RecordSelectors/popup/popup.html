@@ -25,14 +25,13 @@
         <div class="controls combined-controls">
             <button id="start-both-btn">Start Both</button>
             <button id="stop-both-btn" disabled>Stop Both</button>
+            <button id="clear-btn" disabled>Clear All</button>
         </div>
         <div class="controls click-controls">
             <label>Click Recording:</label>
             <button id="start-btn">Start New Events</button>
-            <button id="resume-btn" disabled>Resume Events</button>
             <button id="stop-btn" disabled>Stop Events</button>
-            <button id="clear-btn" disabled>Clear Events</button>
-            <button id="download-btn" disabled>Download Events</button>
+            <button id="download-btn" disabled>Download Transcript</button>
         </div>
         <div class="controls screen-controls">
             <label>Screen Recording:</label>
@@ -42,8 +41,13 @@
         </div>
         <div class="ai-magic-section">
             <label>AI Magic:</label>
-            <label for="ai-prompt">Prompt:</label>
-            <input type="text" id="ai-prompt" placeholder="Describe the test flow you recorded...">
+            <label for="ai-prompt-select">Prompt Type:</label>
+            <select id="ai-prompt-select">
+                <option value="step_gen_prompt.md" selected>Generate Steps</option>
+                <option value="docs_gen_prompt.md">Generate Docs</option>
+            </select>
+            <label for="ai-prompt">User Prompt:</label>
+            <textarea id="ai-prompt" rows="4" placeholder="Describe the action performed in the video..."></textarea>
             <button id="ai-generate-btn">Generate</button>
             <label>Results:</label>
             <textarea id="ai-results" rows="10" readonly placeholder="AI results will appear here..."></textarea>

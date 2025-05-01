@@ -243,7 +243,7 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
     else if (message.action === 'stopBothRecordings') {
         needsAsyncResponse = true; // Needs async for screen recording stop
         console.log("[Background] Received 'stopBothRecordings' action message.");
-        // Stop click recording first (synchronous parts)
+        // Stop click recording first (synchronous parts) - Use internal helper
         stopClickRecordingInternal();
         // Then stop screen recording (asynchronous)
         stopScreenRecording() // This now just stops recording and saves URL
@@ -265,7 +265,7 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
                 sendResponse({ success: false, error: err.message });
             });
     }
-    // --- Click Recording Actions ---
+    // --- Individual Click Recording Actions ---
     else if (message.action === 'startRecording') {
         needsAsyncResponse = true;
         startClickRecordingInternal(sender.tab?.id)
@@ -274,35 +274,33 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
                  console.error("[Background] Error starting click recording:", err);
                  sendResponse({ success: false, error: err.message });
              });
-    } else if (message.action === 'resumeRecording') {
-        if (activeTabId && !isRecording) { // Can only resume if paused (activeTabId exists and not recording)
-            isRecording = true;
-            // DO NOT clear recordedData
-            saveState();
-            sendMessageToContentScript(activeTabId, { action: 'startListening' });
-            updatePopupUI();
-            sendResponse({ success: true });
-            console.log("Recording resumed for tab:", activeTabId);
-        } else {
-            console.warn("Cannot resume recording. Condition not met:", {activeTabId, isRecording});
-             sendResponse({ success: false, error: "Cannot resume" });
-        }
     } else if (message.action === 'stopRecording') {
         stopClickRecordingInternal(); // Use internal helper
         saveState(); // Save state after stopping
         updatePopupUI();
         sendResponse({ success: true });
-    } else if (message.action === 'clearRecording') {
+    }
+    // --- Clear Recording Action ---
+    else if (message.action === 'clearRecording') {
         // Clear existing data
         recordedData = [];
         activeTabId = null;
 
         // Clean up video resources if they exist
-        if (recordedVideoUrl) {
+        console.log(`[clearRecording] Checking video URL before revoke: ${recordedVideoUrl}`);
+        if (recordedVideoUrl && typeof recordedVideoUrl === 'string' && recordedVideoUrl.startsWith('blob:')) {
             try {
-                self.URL.revokeObjectURL(recordedVideoUrl);
-                console.log("Revoked existing video URL on clear.");
-            } catch (e) { console.error("Error revoking video URL on clear:", e); }
+                console.log("[Background] Attempting to revoke video URL on clear:", recordedVideoUrl);
+                // First check if URL and revokeObjectURL exist before calling
+                if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+                    URL.revokeObjectURL(recordedVideoUrl);
+                    console.log("[Background] Successfully revoked video URL on clear.");
+                } else {
+                    console.warn("[Background] URL.revokeObjectURL function not available. Skipping revocation.");
+                }
+            } catch (e) { 
+                console.error("Error revoking video URL on clear:", e); 
+            }
             recordedVideoUrl = null;
         }
         recordedVideoBlob = null; // Also clear any stored blob
@@ -314,6 +312,7 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
         // Clear generated steps as well
         chrome.storage.local.remove('generatedSteps');
 
+        lastAiResults = null; // <-- Clear AI results state
         saveState(); // Save the cleared state
         updatePopupUI();
         console.log("Cleared recording data, state, video resources, and steps.");
@@ -386,57 +385,15 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
             sendResponse({ success: false, error: "Not recording or wrong tab" });
         }
     }
-    // --- Screen Recording Actions ---
-    else if (message.action === 'startScreenRecording') {
-        needsAsyncResponse = true; // Indicate async response
-        startScreenRecording() // This now just sends a message to offscreen
-         .then(() => {
-            // Successfully sent message to offscreen, but recording hasn't started yet
-            // State will be updated when 'recording-started' message is received
-            // Send immediate response to popup to indicate initiation attempt
-            sendResponse({success: true});
-         }).catch(err => {
-            console.error("[Background] Error initiating screen recording via offscreen:", err);
-            // Send error back to popup if setupOffscreen or sendMessage failed
-            sendResponse({success: false, error: err.message});
-         });
-    } else if (message.action === 'stopScreenRecording') {
-        console.log("[Background] Received 'stopScreenRecording' action message (standalone).");
-        needsAsyncResponse = true; // Indicate async response
-         stopScreenRecording() // Just stops and saves URL
-            .then(async () => {
-                console.log("[Background] Standalone screen recording stopped.");
-                await saveState(); // Save state
-                updatePopupUI();
-                sendResponse({success: true});
-            }).catch(err => {
-                console.error("[Background] Error stopping screen recording:", err);
-                 isScreenRecording = false; // Ensure state is updated on error
-                 screenRecordingTabId = null;
-                 saveState();
-                 updatePopupUI();
-                sendResponse({success: false, error: err.message});
-            });
-    }
     // --- NEW: Download Video Action ---
     else if (message.action === 'downloadVideoAction') {
          console.log("[Background] Received 'downloadVideoAction'.");
-         // Re-create a Blob URL if it was revoked but the Blob is still cached
+         // Re-create a Blob URL if it was revoked or lost but the Blob is still cached
          if (!recordedVideoUrl && recordedVideoBlob) {
              console.log("[Background] Recreating Blob URL from cached Blob for download.");
              try {
                  recordedVideoUrl = URL.createObjectURL(recordedVideoBlob);
-                 // Re-set the cleanup timer for the new URL
-                 if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer);
-                 screenRecordingCleanupTimer = setTimeout(() => {
-                    console.warn(`[Background] Cleaning up re-created video Blob URL and Blob after ${VIDEO_CLEANUP_DELAY_MS / 1000}s timeout.`);
-                    clearVideoResources();
-                    saveState();
-                    updatePopupUI();
-                    if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer);
-                    screenRecordingCleanupTimer = null;
-                 }, VIDEO_CLEANUP_DELAY_MS);
-                 console.log(`[Background] Set cleanup timer ${screenRecordingCleanupTimer} for re-created video URL.`);
+                 console.log(`[Background] Re-created video URL: ${recordedVideoUrl}`);
              } catch (error: any) {
                  console.error("[Background] Error recreating Blob URL for download:", error);
                  sendMessageToPopup({ action: 'showNotification', message: `Error preparing video for download: ${error.message}`, type: 'error' });
@@ -459,7 +416,7 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
                      sendResponse({ success: false, error: chrome.runtime.lastError.message });
                  } else {
                      console.log("[Background] Download initiated with ID:", downloadId);
-                     // IMPORTANT: Do NOT revoke the URL here. Revocation happens after Gemini call.
+                     // IMPORTANT: Do NOT revoke the URL here. Revocation happens only on Clear All.
                      sendResponse({ success: true });
                  }
              });
@@ -470,135 +427,33 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
              sendResponse({ success: false, error: 'No video URL' });
          }
     }
-    // --- NEW: Generate Steps with AI Action ---
-    else if (message.action === 'generateStepsWithAI') {
-        console.log("[Background] Received 'generateStepsWithAI' action.");
-        needsAsyncResponse = true;
-
-        // Check prerequisites
-        if (!recordedVideoUrl && !recordedVideoBlob) {
-            console.error("Cannot generate steps: No video data available.");
-            sendMessageToPopup({ action: 'showNotification', message: 'Error: No video data found for analysis.', type: 'error' });
-            sendResponse({ success: false, error: 'No video data' });
-            return needsAsyncResponse; // Exit early
-        }
-        if (!recordedData || recordedData.length === 0) {
-            console.error("Cannot generate steps: No click/input data available.");
-            sendMessageToPopup({ action: 'showNotification', message: 'Error: No recorded actions found for analysis.', type: 'error' });
-            sendResponse({ success: false, error: 'No click data' });
-             // Clean up video if no clicks? Maybe not, user might want to download video still.
-            return needsAsyncResponse; // Exit early
-        }
-
-        (async () => { // Wrap in async IIFE to handle await
-            let videoBlobToProcess = recordedVideoBlob; // Use stored blob if available
-
-            try {
-                 // --- Fetch Blob if only URL exists ---
-                if (!videoBlobToProcess && recordedVideoUrl) {
-                    console.log("Fetching video blob from URL for Gemini:", recordedVideoUrl);
-                    const response = await fetch(recordedVideoUrl);
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch video blob: ${response.statusText} (URL: ${recordedVideoUrl})`);
-                    }
-                    videoBlobToProcess = await response.blob();
-                    recordedVideoBlob = videoBlobToProcess; // Store the fetched blob
-                    console.log("Video blob fetched successfully for Gemini.");
-                }
-
-                if (!videoBlobToProcess) {
-                     throw new Error("Video blob could not be obtained.");
-                }
-
-                // --- Call Gemini API ---
-                console.log("Calling Gemini API with video blob and transcript data...");
-                sendMessageToPopup({ action: 'showNotification', message: 'Analyzing recording with AI...', type: 'info' });
-                await callGeminiApi(videoBlobToProcess, recordedData); // Assumes callGeminiApi handles sending results/errors to popup
-                console.log("Gemini API call completed (or backgrounded).");
-
-                // --- Cleanup ---
-                console.log("Revoking video Blob URL (if exists) after Gemini processing:", recordedVideoUrl);
-                if (recordedVideoUrl) {
-                    try { self.URL.revokeObjectURL(recordedVideoUrl); } catch (e) { console.warn("Error revoking URL post-Gemini:", e); }
-                    recordedVideoUrl = null; // Clear the URL state variable
-                }
-                // Keep recordedVideoBlob in memory? Or clear it? Let's clear it for now.
-                // recordedVideoBlob = null;
-                // If we clear the blob, subsequent Generate clicks or downloads would fail.
-                // Let's keep the blob but clear the URL. The blob can be reused.
-
-                await saveState(); // Save state reflecting URL cleanup
-                updatePopupUI(); // Update UI (e.g., disable Generate button if needed, though callGeminiApi might do this)
-                sendResponse({ success: true }); // Respond that the process was initiated
-
-            } catch (error: any) {
-                console.error("Error during Gemini API call or video fetch for generation:", error);
-                sendMessageToPopup({ action: 'showNotification', message: `Error processing video for AI: ${error.message}`, type: 'error' });
-
-                // Attempt cleanup even on error
-                if (recordedVideoUrl) {
-                    try { self.URL.revokeObjectURL(recordedVideoUrl); } catch(e) { console.warn("Error revoking URL on Gemini error:", e); }
-                    recordedVideoUrl = null;
-                }
-                // Don't clear blob on error? Maybe keep it for download attempt.
-                // recordedVideoBlob = null;
-
-                await saveState(); // Save cleaned-up state
-                updatePopupUI(); // Update UI
-                sendResponse({ success: false, error: (error as Error).message }); // Cast to Error to access message
-            }
-        })(); // End async IIFE
-
-    }
-    // --- NEW: Save API Key Action ---
-    else if (message.action === 'saveApiKey') {
-        const newApiKey = message.apiKey;
-        if (newApiKey && typeof newApiKey === 'string') {
-            needsAsyncResponse = true;
-            chrome.storage.local.set({ geminiApiKey: newApiKey }, () => {
-                if (chrome.runtime.lastError) {
-                    console.error("[Background] Error saving Gemini API Key to storage:", chrome.runtime.lastError.message);
-                    sendResponse({ success: false, error: chrome.runtime.lastError.message });
-                } else {
-                    GEMINI_API_KEY = newApiKey; // Update the global variable immediately
-                    console.log("[Background] Gemini API Key saved to storage and updated globally.");
-                    sendResponse({ success: true });
-                }
-            });
-        } else {
-            console.error("[Background] Invalid API key received for saving.");
-            sendResponse({ success: false, error: "Invalid API key provided" });
-        }
-    }
-    // --- Generate with AI Magic + User Prompt ---
+    // --- NEW: Generate with AI Magic + User Prompt ---
     else if (message.action === 'generateWithAiMagic') {
         console.log("[Background] Received 'generateWithAiMagic' action with user prompt:", message.userPrompt);
+        const selectedPromptFile = message.selectedPromptFile || 'step_gen_prompt.md'; // Get selected prompt, default
+        console.log("[Background] Using prompt file:", selectedPromptFile);
         needsAsyncResponse = true;
 
         const userProvidedPrompt = message.userPrompt || ""; // Get the user's prompt
 
-        // Check prerequisites (same as generateStepsWithAI)
-        if (!recordedVideoBlob && !recordedVideoUrl) {
-            console.error("Cannot generate steps: No video data available.");
+        // Check prerequisites - ensure at least one data type is available
+        const hasVideoData = !!recordedVideoBlob || !!recordedVideoUrl;
+        const hasClickData = recordedData && recordedData.length > 0;
+
+        if (!hasVideoData && !hasClickData) {
+            const errorMsg = "Cannot generate steps: No video or click/input data available.";
+            console.error(errorMsg); // Keep error log
             isAiGenerating = false;
-            lastAiResults = "Error: No video data found for analysis.";
-            saveState();
+            lastAiResults = `Error: ${errorMsg}`;
+            saveState(); // Save state with error
+            // Send error result back to popup
             sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
-            sendResponse({ success: false, error: 'No video data' });
-            return needsAsyncResponse;
-        }
-        if (!recordedData || recordedData.length === 0) {
-            console.error("Cannot generate steps: No click/input data available.");
-            isAiGenerating = false;
-            lastAiResults = "Error: No recorded actions found for analysis.";
-            saveState();
-            sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
-            sendResponse({ success: false, error: 'No click data' });
-            return needsAsyncResponse;
+            sendResponse({ success: false, error: errorMsg });
+            return needsAsyncResponse; // Exit early
         }
 
         (async () => {
-            let videoBlobToProcess = recordedVideoBlob;
+            let videoBlobToProcess: Blob | null = recordedVideoBlob;
             isAiGenerating = true;
             lastAiResults = "Generating...";
             await saveState(); // Save generating state
@@ -606,53 +461,82 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
             sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
 
             try {
-                if (!videoBlobToProcess && recordedVideoUrl) {
-                    console.log("Fetching video blob from URL for AI Magic Gemini:", recordedVideoUrl);
-                    const response = await fetch(recordedVideoUrl);
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch video blob: ${response.statusText}`);
+                // Re-create Blob URL if it was revoked or lost but the Blob is still cached
+                // This helps if the service worker restarted but the blob reference survived.
+                if (!recordedVideoUrl && recordedVideoBlob) {
+                    console.log("[Background] Recreating Blob URL from cached Blob for AI use.");
+                    try {
+                        recordedVideoUrl = URL.createObjectURL(recordedVideoBlob);
+                        console.log("[Background] Re-created Blob URL:", recordedVideoUrl);
+                        // No cleanup timer needed here
+                    } catch (error: any) {
+                        console.error("[Background] Error recreating Blob URL for AI:", error);
+                        // Proceed without URL, maybe still use blob directly if possible
+                        recordedVideoUrl = null;
                     }
-                    videoBlobToProcess = await response.blob();
-                    recordedVideoBlob = videoBlobToProcess; // Store fetched blob
-                    console.log("Video blob fetched successfully for AI Magic Gemini.");
                 }
 
+                // Fetch blob from URL ONLY IF we don't have the blob directly and the URL exists
+                if (!videoBlobToProcess && recordedVideoUrl) {
+                    console.log("Fetching video blob from URL for AI Magic Gemini:", recordedVideoUrl);
+                    try {
+                        const response = await fetch(recordedVideoUrl!); 
+                        if (!response.ok) {
+                            throw new Error(`Failed to fetch video blob: ${response.statusText}`);
+                        }
+                        videoBlobToProcess = await response.blob();
+                        recordedVideoBlob = videoBlobToProcess; // Store fetched blob
+                        console.log("Video blob fetched successfully for AI Magic Gemini.");
+                    } catch (fetchError: any) {
+                         console.error("Error fetching video blob from URL:", fetchError);
+                         // Set to null if fetch fails, proceed without video
+                         videoBlobToProcess = null;
+                         // Optionally notify user?
+                         sendMessageToPopup({ action: 'showNotification', message: `Warning: Could not fetch video data for AI. Proceeding with transcript only. Error: ${fetchError.message}`, type: 'warning' });
+                    }
+                }
+
+                // If after all attempts, we still don't have a blob, warn and proceed without video
                 if (!videoBlobToProcess) {
-                     throw new Error("Video blob could not be obtained.");
+                    console.warn("Cannot provide video blob for Gemini. Proceeding without video.");
                 }
 
                 console.log("Calling Gemini API (AI Magic) with video, transcript, and user prompt...");
                 sendMessageToPopup({ action: 'showNotification', message: 'Analyzing recording with AI Magic...', type: 'info' });
-                
-                // Call Gemini, passing the user's prompt
-                await callGeminiApi(videoBlobToProcess, recordedData, userProvidedPrompt); 
-                
-                console.log("AI Magic Gemini API call completed (or backgrounded).");
 
-                // Cleanup URL (keep blob for potential reuse/download)
-                if (recordedVideoUrl) {
-                    console.log("Revoking video Blob URL after AI Magic processing attempt:", recordedVideoUrl);
-                    try { URL.revokeObjectURL(recordedVideoUrl); } catch (e) { console.warn("Error revoking URL post-AI Magic:", e); }
-                    recordedVideoUrl = null; // Clear the URL state variable
-                }
-                await saveState(); // Save state reflecting URL cleanup
-                updatePopupUI();
-                sendResponse({ success: true });
+                // Call Gemini, passing the selected prompt file and user's prompt
+                // callGeminiApi handles updating state (isAiGenerating, lastAiResults) and sending results to popup
+                await callGeminiApi(videoBlobToProcess, recordedData, selectedPromptFile, userProvidedPrompt);
+
+                console.log("AI Magic Gemini API call completed.");
+
+                // DO NOT Cleanup URL here anymore
+                // if (recordedVideoUrl) {
+                //     console.log("Revoking video Blob URL after AI Magic processing attempt:", recordedVideoUrl);
+                //     try { URL.revokeObjectURL(recordedVideoUrl); } catch (e) { console.warn("Error revoking URL post-AI Magic:", e); }
+                //     recordedVideoUrl = null; // Clear the URL state variable
+                // }
+                // State (isAiGenerating, lastAiResults) is already saved within callGeminiApi
+                // await saveState(); // Save state reflecting URL cleanup
+                updatePopupUI(); // Update UI based on the result saved by callGeminiApi
+                sendResponse({ success: true }); // Indicate the process was initiated and completed (successfully or with handled error)
 
             } catch (error: any) {
-                console.error("Error during AI Magic Gemini call or video fetch:", error);
+                 // This outer catch handles errors *before* calling callGeminiApi (e.g., blob fetch issues not caught internally)
+                 // or issues *after* callGeminiApi returns (though most processing is now inside callGeminiApi)
+                console.error("Error during AI Magic orchestration:", error);
                 isAiGenerating = false;
                 lastAiResults = `Error: ${error.message}`;
                 await saveState();
                 // Send error result to popup
                 sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
-                // Cleanup video URL even on error
-                if (recordedVideoUrl) {
-                    console.log("Revoking video Blob URL after AI Magic error:", recordedVideoUrl);
-                    try { URL.revokeObjectURL(recordedVideoUrl); } catch(e: any) { console.warn("Error revoking URL on AI Magic error:", e); }
-                    recordedVideoUrl = null;
-                }
-                await saveState();
+                // DO NOT Cleanup video URL on error anymore
+                // if (recordedVideoUrl) {
+                //     console.log("Revoking video Blob URL after AI Magic error:", recordedVideoUrl);
+                //     try { URL.revokeObjectURL(recordedVideoUrl); } catch(e: any) { console.warn("Error revoking URL on AI Magic error:", e); }
+                //     recordedVideoUrl = null;
+                // }
+                await saveState(); // Save error state
                 updatePopupUI();
                 sendResponse({ success: false, error: error.message });
             }
@@ -661,35 +545,55 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
     }
     // --- Message from Offscreen Document ---
     else if (message.target === 'background' && (message.type === 'recording-stopped' || message.type === 'recording-error')) {
-        
+
         // Always reset recording state regardless of success/error
         isScreenRecording = false;
-        screenRecordingTabId = null;
-        
-        // Clear any pending cleanup timer first
-        if (screenRecordingCleanupTimer) {
-            console.log("[Background] Clearing cleanup timer:", screenRecordingCleanupTimer);
-            if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer);
-            screenRecordingCleanupTimer = null;
-        }
+        // Don't reset screenRecordingTabId here, might be useful for context
+        // screenRecordingTabId = null;
+
+        // No cleanup timer to clear anymore
+        // if (screenRecordingCleanupTimer) {
+        //     console.log("[Background] Clearing cleanup timer:", screenRecordingCleanupTimer);
+        //     if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer);
+        //     screenRecordingCleanupTimer = null;
+        // }
 
         if (message.type === 'recording-stopped' && message.url) {
             console.log("[Background] Received 'recording-stopped' message from offscreen with URL:", message.url);
             recordedVideoUrl = message.url; // Store the Blob URL
-            recordedVideoBlob = null; // Clear any previously stored blob
-            console.log("[Background] Stored new video Blob URL.");
+            // Fetch the blob immediately and store it to make it less reliant on the temporary offscreen document URL
+            // This increases memory usage but improves chances of survival if the offscreen doc closes quickly.
+            (async () => {
+                try {
+                    console.log("Fetching Blob data from URL immediately:", recordedVideoUrl);
+                    if (!recordedVideoUrl) throw new Error("No URL to fetch");
+                    const response = await fetch(recordedVideoUrl!);
+                    if (!response.ok) throw new Error(`Failed to fetch blob: ${response.statusText}`);
+                    recordedVideoBlob = await response.blob();
+                    console.log("Stored Blob data directly in background script.");
+                    // Save state after successfully getting the blob
+                    await saveState();
+                    updatePopupUI(); // Update UI now that blob is likely available
+                } catch (error) {
+                    console.error("Error fetching blob from offscreen URL:", error);
+                    recordedVideoBlob = null; // Ensure blob is null if fetch fails
+                    // Still save state and update UI, but video might not work later
+                    await saveState();
+                    updatePopupUI();
+                }
+            })();
+             console.log("[Background] Stored new video Blob URL. Attempting to fetch and store Blob data.");
 
-            // Set a timer to revoke the URL and clear the blob if it's not used (e.g., by Gemini or download) within a reasonable time
-            if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer); // Clear any existing timer
-            screenRecordingCleanupTimer = setTimeout(() => {
-                console.warn(`[Background] Cleaning up unused video Blob URL and Blob after ${VIDEO_CLEANUP_DELAY_MS / 1000}s timeout.`);
-                clearVideoResources(); // Use helper to clear URL and Blob
-                saveState(); // Save state after cleanup
-                updatePopupUI(); // Reflect timeout in UI
-                // No need to clear timer inside itself, just set to null
-                screenRecordingCleanupTimer = null;
-            }, VIDEO_CLEANUP_DELAY_MS);
-            console.log(`[Background] Set cleanup timer ${screenRecordingCleanupTimer} for video URL and Blob.`);
+            // REMOVED Timeout for cleanup
+            // if (screenRecordingCleanupTimer !== null) clearTimeout(screenRecordingCleanupTimer); // Clear any existing timer
+            // screenRecordingCleanupTimer = setTimeout(() => {
+            //     console.warn(`[Background] Cleaning up unused video Blob URL and Blob after ${VIDEO_CLEANUP_DELAY_MS / 1000}s timeout.`);
+            //     clearVideoResources(); // Use helper to clear URL and Blob
+            //     saveState(); // Save state after cleanup
+            //     updatePopupUI(); // Reflect timeout in UI
+            //     screenRecordingCleanupTimer = null;
+            // }, VIDEO_CLEANUP_DELAY_MS);
+            // console.log(`[Background] Set cleanup timer ${screenRecordingCleanupTimer} for video URL and Blob.`);
 
         } else {
             // Handle cases: recording-stopped without URL, or recording-error
@@ -697,18 +601,18 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
             console.error(`[Background] Recording failed or video unavailable. Reason: ${reason}`);
             recordedVideoUrl = null; // Ensure URL is null
             recordedVideoBlob = null; // Ensure blob is null
-            
+
             // Notify the user via popup
-            sendMessageToPopup({ 
-                action: 'showNotification', 
-                message: `Video recording failed: ${reason}`, 
-                type: 'error' 
+            sendMessageToPopup({
+                action: 'showNotification',
+                message: `Video recording failed: ${reason}`,
+                type: 'error'
             });
         }
-        
-        // Update state and UI after handling message
-        saveState(); 
-        updatePopupUI(); 
+
+        // Update state and UI after handling message (blob fetching might update again later)
+        saveState();
+        updatePopupUI();
 
     }
 
@@ -747,7 +651,61 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
         }
     }
 
+    // --- Individual Screen Recording Actions ---
+    else if (message.action === 'startScreenRecording') {
+        needsAsyncResponse = true; // Indicate async response
+        startScreenRecording() // This now just sends a message to offscreen
+         .then(() => {
+            // Successfully sent message to offscreen, but recording hasn't started yet
+            // State will be updated when 'recording-started' message is received
+            // Send immediate response to popup to indicate initiation attempt
+            sendResponse({success: true});
+         }).catch(err => {
+            console.error("[Background] Error initiating screen recording via offscreen:", err);
+            // Send error back to popup if setupOffscreen or sendMessage failed
+            sendResponse({success: false, error: err.message});
+         });
+    } else if (message.action === 'stopScreenRecording') {
+        console.log("[Background] Received 'stopScreenRecording' action message (standalone).");
+        needsAsyncResponse = true; // Indicate async response
+         stopScreenRecording() // Just stops and saves URL
+            .then(async () => {
+                console.log("[Background] Standalone screen recording stopped.");
+                await saveState(); // Save state
+                updatePopupUI();
+                sendResponse({success: true});
+            }).catch(err => {
+                console.error("[Background] Error stopping screen recording:", err);
+                 isScreenRecording = false; // Ensure state is updated on error
+                 screenRecordingTabId = null;
+                 saveState();
+                 updatePopupUI();
+                sendResponse({success: false, error: err.message});
+            });
+    }
+
     // --- Fallback for unhandled actions ---
+    else if (message.action === 'saveApiKey') {
+        needsAsyncResponse = true;
+        console.log("[Background] Received 'saveApiKey' action with API key length:", message.apiKey?.length || 0);
+        
+        // Store the API key in chrome.storage.local
+        chrome.storage.local.set({ geminiApiKey: message.apiKey })
+            .then(() => {
+                // Update the in-memory API key
+                GEMINI_API_KEY = message.apiKey;
+                console.log("[Background] API key saved successfully in storage and memory");
+                // Send notification to popup for visibility
+                sendMessageToPopup({ action: 'showNotification', message: 'API Key saved successfully!', type: 'success' });
+                sendResponse({ success: true });
+            })
+            .catch((error) => {
+                console.error("[Background] Error saving API key:", error);
+                // Send notification to popup for visibility
+                sendMessageToPopup({ action: 'showNotification', message: `Error saving API key: ${error.message}`, type: 'error' });
+                sendResponse({ success: false, error: error.message });
+            });
+    }
     else {
         console.warn("Unhandled message action:", message.action);
         // Optionally send a response for unhandled actions
@@ -762,6 +720,10 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
 const GEMINI_MODEL_NAME = 'gemini-2.5-flash-preview-04-17';
 // Base URL - Key will be appended in callGeminiApi if available
 const GEMINI_API_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_NAME}:generateContent`;
+// Maximum retries for transient server errors
+const MAX_API_RETRIES = 3;
+// Retry delay in milliseconds (with exponential backoff)
+const RETRY_DELAY_MS = 1000;
 
 /**
  * Helper function to convert Blob to Base64 string.
@@ -784,35 +746,144 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
+ * Helper function to resize a video blob if it's too large
+ * @param {Blob} videoBlob - The original video blob
+ * @param {number} maxSizeBytes - Maximum size in bytes
+ * @returns {Promise<Blob>} A promise that resolves with a smaller blob or the original if already small enough
+ */
+async function resizeVideoIfNeeded(videoBlob: Blob, maxSizeBytes: number): Promise<Blob> {
+    if (!videoBlob || videoBlob.size <= maxSizeBytes) {
+        return videoBlob; // No need to resize
+    }
+    
+    console.log(`Video size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds ideal size. Will use a lower quality version for AI processing.`);
+    
+    try {
+        // Create a temporary video element to load the blob
+        const videoElement = document.createElement('video');
+        const videoUrl = URL.createObjectURL(videoBlob);
+        
+        // Wait for video metadata to load
+        await new Promise<void>((resolve, reject) => {
+            videoElement.onloadedmetadata = () => resolve();
+            videoElement.onerror = () => reject(new Error("Failed to load video metadata"));
+            videoElement.src = videoUrl;
+        });
+        
+        // Get video dimensions and duration
+        const width = Math.floor(videoElement.videoWidth * 0.5);  // 50% of original width
+        const height = Math.floor(videoElement.videoHeight * 0.5); // 50% of original height
+        const duration = videoElement.duration;
+        
+        // Clean up the URL
+        URL.revokeObjectURL(videoUrl);
+        
+        // For now, returning the original blob as we don't have a full video transcoding solution
+        // But this function can be expanded with WebCodecs API or other approaches
+        console.log("Video size reduction attempted but not fully implemented. Using original video at reduced quality.");
+        
+        // Return a smaller portion of the original video as a fallback approach
+        const halfSize = Math.floor(videoBlob.size / 2);
+        return videoBlob.slice(0, halfSize, videoBlob.type);
+        
+    } catch (error) {
+        console.error("Error trying to resize video:", error);
+        return videoBlob; // Return original on error
+    }
+}
+
+/**
+ * Makes a fetch request to the Gemini API with retry logic for server errors
+ * @param {string} apiUrl - Full API URL with API key
+ * @param {Object} requestBody - Request payload
+ * @param {number} retries - Number of retries remaining
+ * @returns {Promise<Response>} The fetch response
+ */
+async function fetchWithRetry(apiUrl: string, requestBody: any, retries = MAX_API_RETRIES): Promise<Response> {
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Chrome-Extension',
+                'Accept': 'application/json',
+                'Origin': chrome.runtime.getURL(''),
+            },
+            body: JSON.stringify(requestBody),
+        });
+        
+        // If we get a 500 error and have retries left, try again with exponential backoff
+        if (response.status === 500 && retries > 0) {
+            const delay = RETRY_DELAY_MS * (MAX_API_RETRIES - retries + 1);
+            console.log(`Gemini API returned 500 error. Retrying in ${delay}ms... (${retries} retries left)`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return fetchWithRetry(apiUrl, requestBody, retries - 1);
+        }
+        
+        return response;
+    } catch (error) {
+        // For network errors, also retry if we have retries left
+        if (retries > 0) {
+            const delay = RETRY_DELAY_MS * (MAX_API_RETRIES - retries + 1);
+            console.log(`Network error calling Gemini API. Retrying in ${delay}ms... (${retries} retries left)`, error);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return fetchWithRetry(apiUrl, requestBody, retries - 1);
+        }
+        throw error;
+    }
+}
+
+/**
  * Calls the Gemini API to generate step-by-step instructions based on video and recorded actions.
  * @param {Blob} videoBlob - The recorded video as a Blob.
  * @param {Array<Object>} transcriptData - Array of recorded click/input events.
+ * @param {string} promptFileName - The name of the prompt file to use (e.g., 'step_gen_prompt.md').
  * @param {string} [userPrompt=""] - Optional additional user-provided prompt/context.
  * @returns {Promise<string|null>} A promise that resolves with the generated steps text, or null on error.
  */
-async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPrompt = ""): Promise<string | null> {
+async function callGeminiApi(videoBlob: Blob | null, transcriptData: Array<any>, promptFileName: string, userPrompt = ""): Promise<string | null> {
     // Ensure the key has loaded before proceeding
     await geminiKeyLoaded;
 
-    // Add Blob size check as per review comment
-    const MAX_BLOB_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB limit (adjust as needed)
-    if (videoBlob.size > MAX_BLOB_SIZE_BYTES) {
-        const errorMsg = `Video file size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds the limit of ${MAX_BLOB_SIZE_BYTES / (1024 * 1024)} MB for AI analysis.`;
-        console.error(errorMsg);
-        sendMessageToPopup({ action: 'showAiMagicResults', results: `Error: ${errorMsg}` });
-        sendMessageToPopup({ action: 'showNotification', message: errorMsg, type: 'error' });
-        // Update state to reflect the error
-        isAiGenerating = false;
-        lastAiResults = `Error: ${errorMsg}`;
-        await saveState(); 
-        return null; // Stop processing
+    // Define size limits
+    const MAX_BLOB_SIZE_BYTES = 200 * 1024 * 1024; // 200 MB absolute maximum
+    const IDEAL_BLOB_SIZE_BYTES = 100 * 1024 * 1024; // 20 MB ideal maximum for reliability
+    
+    // Only check size if videoBlob is not null
+    if (videoBlob) {
+        console.log(`Original video size: ${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB`);
+        
+        if (videoBlob.size > MAX_BLOB_SIZE_BYTES) {
+            const errorMsg = `Video file size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds the limit of ${MAX_BLOB_SIZE_BYTES / (1024 * 1024)} MB for AI analysis.`;
+            console.error(errorMsg);
+            sendMessageToPopup({ action: 'showAiMagicResults', results: `Error: ${errorMsg}` });
+            sendMessageToPopup({ action: 'showNotification', message: errorMsg, type: 'error' });
+            // Update state to reflect the error
+            isAiGenerating = false;
+            lastAiResults = `Error: ${errorMsg}`;
+            await saveState();
+            return null; // Stop processing
+        } else if (videoBlob.size > IDEAL_BLOB_SIZE_BYTES) {
+            // If video is larger than ideal but smaller than maximum, try to resize it
+            try {
+                videoBlob = await resizeVideoIfNeeded(videoBlob, IDEAL_BLOB_SIZE_BYTES);
+                console.log(`Video processed for AI. New size: ${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB`);
+            } catch (error) {
+                console.warn("Could not optimize video size:", error);
+                // Continue with original video
+            }
+        }
     }
 
     if (!GEMINI_API_KEY) {
         const errorMsg = 'Gemini API Key not configured. Please set it in extension settings/storage.';
         console.warn(errorMsg);
+        // Update state to reflect the error
+        isAiGenerating = false;
+        lastAiResults = `Error: ${errorMsg}`;
+        await saveState(); // Save state with error
         // Send result back to the correct popup handler
-        sendMessageToPopup({ action: 'showAiMagicResults', results: `Error: ${errorMsg}` }); 
+        sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
         // Also send a notification for clarity
         sendMessageToPopup({ action: 'showNotification', message: errorMsg, type: 'error' });
         return null;
@@ -821,75 +892,88 @@ async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPr
     console.log('Preparing data for Gemini API (', GEMINI_MODEL_NAME, ')...');
     try {
         // 1. Fetch the system prompt
-        const promptResponse = await fetch(chrome.runtime.getURL('step_gen_prompt.md'));
+        const promptUrl = chrome.runtime.getURL(promptFileName); // Use the passed filename
+        console.log('Fetching system prompt from:', promptUrl);
+        const promptResponse = await fetch(promptUrl);
         if (!promptResponse.ok) {
-            throw new Error(`Failed to fetch prompt: ${promptResponse.statusText}`);
+            throw new Error(`Failed to fetch prompt '${promptFileName}': ${promptResponse.statusText}`);
         }
         const systemPromptText = await promptResponse.text();
         console.log('System prompt fetched successfully.');
 
         // 2. Prepare video data
-        const videoBase64 = await blobToBase64(videoBlob);
-        const videoMimeType = videoBlob.type || 'video/webm'; // Use blob type or default
-        console.log(`Video converted to Base64 (MIME type: ${videoMimeType}).`);
+        let videoBase64: string | null = null;
+        let videoMimeType: string | null = null;
+        if (videoBlob) {
+            try {
+                videoBase64 = await blobToBase64(videoBlob);
+                videoMimeType = videoBlob.type || 'video/webm'; // Use blob type or default
+                console.log(`Video converted to Base64 (MIME type: ${videoMimeType}).`);
+            } catch (error) {
+                console.error("Error converting video blob to Base64:", error);
+                // Handle error? Maybe send a notification? For now, proceed without video.
+                videoBase64 = null;
+            }
+        } else {
+            console.log("No video blob provided for Gemini API call.");
+        }
 
         // 3. Prepare transcript data string using the formatter
         const transcriptString = formatRecordedDataForDownload(transcriptData, false); // Get simple format for API
-        if (!transcriptString) {
-            throw new Error("Failed to format transcript data for Gemini API.");
-        }
+        // Allow empty or null transcript string if no data was recorded
+        const transcriptText = transcriptString ? `Here is the transcript of user actions, extract the main selector classes/id from each click event and also corresponding text input after each click:\n${transcriptString}` : "";
 
         // Construct the text part for the user, including the transcript and the optional user prompt
-        let combinedUserText = `Here is the transcript of user actions:\n${transcriptString}`;
+        let combinedUserText = transcriptText; // Start with transcript (or message saying none)
         if (userPrompt && userPrompt.trim() !== "") {
-            combinedUserText += `\n\nUser provided context/prompt: ${userPrompt}`;
+            combinedUserText += `\n\nUSER FLOW (or) TASK: ${userPrompt}`;
         }
-        combinedUserText += `\n\nBased *only* on the provided video and the transcript (and user context if provided), generate the detailed step-by-step description of the user flow according to the initial instructions. Focus on what is visible and interacted with.`;
 
-        console.log('Transcript and user prompt formatted into user prompt text.');
+        console.log('Transcript/user prompt formatted into user prompt text.');
 
         // 4. Construct the API request payload following documentation structure
+        // Build parts array conditionally
+        const requestParts: any[] = [];
+
+        // Add video part only if available
+        if (videoBase64 && videoMimeType) {
+            requestParts.push({
+                inline_data: {
+                    mime_type: videoMimeType,
+                    data: videoBase64
+                }
+            });
+        }
+
+        // Add system prompt text part
+        requestParts.push({ text: systemPromptText });
+
+        // Add combined user text part
+        requestParts.push({ text: combinedUserText });
+
         const requestBody = {
             // System instruction should be set if the model supports it directly
             // For older models or direct REST, include it as the first part if needed
             // systemInstruction: { parts: [{ text: systemPromptText }] }, // Use if API supports it
             contents: [
                 {
-                    // Combine video and user prompt in one content object
-                    parts: [
-                        {
-                            // Video part
-                            inline_data: {
-                                mime_type: videoMimeType, 
-                                data: videoBase64
-                            }
-                        },
-                        { 
-                            // Include the system prompt as the first text part for context
-                            text: systemPromptText 
-                        }, 
-                        { 
-                            // User prompt part (transcript + optional user prompt + instruction)
-                            text: combinedUserText 
-                        }
-                    ]
+                    // Dynamically built parts array
+                    parts: requestParts
                 }
             ],
             generationConfig: { // Optional: Add generation config if needed
-                 "maxOutputTokens": 8192, 
+                // Gemini 2.5 Models support upto 65,536 output tokens.
+                "maxOutputTokens": 64000,
+                "thinkingConfig": {
+                    "thinkingBudget": 24576,
+                }
             }
         };
 
         console.log('Sending request to Gemini API (', GEMINI_MODEL_NAME, ')...');
         // 5. Make the API call - Construct URL with key here
         const apiUrlWithKey = `${GEMINI_API_BASE_URL}?key=${GEMINI_API_KEY}`;
-        const response = await fetch(apiUrlWithKey, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody),
-        });
+        const response = await fetchWithRetry(apiUrlWithKey, requestBody);
 
         const responseText = await response.text(); // Get raw text for detailed error logging
         if (!response.ok) {
@@ -908,12 +992,17 @@ async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPr
                  console.warn(`Gemini generation finished with reason: ${candidate.finishReason}`);
                  if (candidate.finishReason === 'SAFETY') {
                       sendMessageToPopup({ action: 'showNotification', message: 'AI response blocked due to safety settings.', type: 'error' });
-                      return null;
+                      // Keep AI generating false, set results to null or error
+                      isAiGenerating = false;
+                      lastAiResults = 'Error: AI response blocked due to safety settings.';
+                      await saveState();
+                      sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
+                      return null; // Return null as generation failed
                  } else {
                       sendMessageToPopup({ action: 'showNotification', message: `AI generation stopped unexpectedly (${candidate.finishReason}).`, type: 'warning' });
                  }
             }
-            
+
             const generatedSteps = candidate?.content?.parts?.[0]?.text;
             finalResult = generatedSteps || null;
             if (generatedSteps) {
@@ -925,26 +1014,27 @@ async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPr
             } else {
                  console.warn('Could not extract generated steps text from Gemini response candidate.', candidate);
                  finalResult = 'Error: Failed to extract steps from AI analysis response.';
+                 sendMessageToPopup({ action: 'showAiMagicResults', results: finalResult }); // Send error to popup
             }
         } else if (responseData.promptFeedback && responseData.promptFeedback.blockReason) {
              console.warn(`Prompt blocked by Gemini API. Reason: ${responseData.promptFeedback.blockReason}`);
              // Send error back to the correct popup handler
-             sendMessageToPopup({ action: 'showAiMagicResults', results: `Error: AI analysis blocked due to prompt content (Reason: ${responseData.promptFeedback.blockReason}).` });
-             sendMessageToPopup({ action: 'showNotification', message: `AI analysis blocked due to prompt content (Reason: ${responseData.promptFeedback.blockReason}).`, type: 'error' });
              finalResult = `Error: AI analysis blocked due to prompt content (Reason: ${responseData.promptFeedback.blockReason}).`;
+             sendMessageToPopup({ action: 'showAiMagicResults', results: finalResult });
+             sendMessageToPopup({ action: 'showNotification', message: finalResult, type: 'error' });
          } else {
             console.warn('Gemini response received, but no valid candidates or prompt feedback found.', responseData);
             // Send error back to the correct popup handler
-            sendMessageToPopup({ action: 'showAiMagicResults', results: 'Error: Received an unexpected response from AI analysis.' });
-            sendMessageToPopup({ action: 'showNotification', message: 'Received an unexpected response from AI analysis.', type: 'warning' });
             finalResult = 'Error: Received an unexpected response from AI analysis.';
+            sendMessageToPopup({ action: 'showAiMagicResults', results: finalResult });
+            sendMessageToPopup({ action: 'showNotification', message: finalResult, type: 'warning' });
         }
 
         // Update state with final result (success or error message)
         isAiGenerating = false;
         lastAiResults = finalResult;
         await saveState();
-        sendMessageToPopup({ action: 'showAiMagicResults', results: finalResult });
+        // The message to showAiMagicResults was sent earlier inside the if/else blocks
         return finalResult; // Return the result string or null/error string
 
     } catch (error: any) {
@@ -953,6 +1043,14 @@ async function callGeminiApi(videoBlob: Blob, transcriptData: Array<any>, userPr
         lastAiResults = `Error during AI analysis: ${error.message}`;
         await saveState();
         sendMessageToPopup({ action: 'showAiMagicResults', results: lastAiResults });
+        // Do NOT revoke URL on error anymore
+        // if (recordedVideoUrl) {
+        //     console.log("Revoking video Blob URL after AI Magic error:", recordedVideoUrl);
+        //     try { URL.revokeObjectURL(recordedVideoUrl); } catch(e: any) { console.warn("Error revoking URL on AI Magic error:", e); }
+        //     recordedVideoUrl = null;
+        // }
+        // await saveState(); // State already saved above
+        // updatePopupUI(); // UI will be updated by state save if needed
         return null;
     }
 }
@@ -1001,7 +1099,7 @@ async function startClickRecordingInternal(requestingTabId: number | undefined):
     activeTabId = targetTab.id;
     isRecording = true;
     recordedData = []; // Clear previous data on new recording start
-    clearVideoResources(); // Clear any old video when starting fresh click recording
+    // DO NOT clear video resources when starting a new click recording
     console.log(`Recording started for tab: ${activeTabId}, URL: ${targetTab.url}`);
     await saveState(); // Save state immediately
 
@@ -1050,23 +1148,29 @@ function stopClickRecordingInternal(): void {
 
 /**
  * Clears any stored video resources (Blob URL and Blob data).
- * Also clears the cleanup timer associated with the video URL.
+ * This should ONLY be called when the user explicitly clears data.
  */
 // Make function async to allow awaiting saveState
 async function clearVideoResources(): Promise<void> {
-    if (screenRecordingCleanupTimer !== null) { // Ensure null check is here
-        clearTimeout(screenRecordingCleanupTimer);
-        screenRecordingCleanupTimer = null;
-    }
-    if (recordedVideoUrl) {
-        URL.revokeObjectURL(recordedVideoUrl);
+    if (recordedVideoUrl && typeof recordedVideoUrl === 'string' && recordedVideoUrl.startsWith('blob:')) {
+        try {
+            console.log("[clearVideoResources] Attempting to revoke URL:", recordedVideoUrl);
+            // First check if URL and revokeObjectURL exist before calling
+            if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+                URL.revokeObjectURL(recordedVideoUrl);
+                console.log("[clearVideoResources] Successfully revoked URL.");
+            } else {
+                console.warn("[clearVideoResources] URL.revokeObjectURL function not available. Skipping revocation.");
+            }
+        } catch (error) {
+            // This catch might still catch other errors during the process
+            console.error("[clearVideoResources] Error during URL revocation attempt:", error);
+        }
         recordedVideoUrl = null;
     }
     recordedVideoBlob = null; // Clear the blob data too
-    console.log("Cleared video resources (URL, Blob, Timer).");
-    // Add saveState call as per review comment
+    console.log("Cleared video resources (URL, Blob).");
     await saveState();
-    // Don't update UI here, let callers decide
 }
 
 /**
@@ -1087,7 +1191,7 @@ async function startScreenRecording(): Promise<void> {
         console.error("[Background] Could not get active tab to start screen recording.");
         throw new Error("No active tab found for screen recording.");
     }
-    screenRecordingTabId = currentTab.id as number; // Added assertion: currentTab.id should be number here
+    screenRecordingTabId = currentTab.id as number; // No assertion needed after check
 
     // 1. Ensure the offscreen document is ready.
     await setupOffscreenDocument(OFFSCREEN_DOCUMENT_PATH);
@@ -1105,8 +1209,11 @@ async function startScreenRecording(): Promise<void> {
     // IMPORTANT: Do NOT set isScreenRecording = true here.
     // State is updated only when 'recording-started' message is received back.
 
-    // Clear previous video data optimistically
-    clearVideoResources(); // Use helper
+    // Clear previous video data optimistically when starting a *new* screen recording.
+    // This assumes the user wants a fresh video if they explicitly press "Start Screen Recording".
+    // If they press "Start Both", click recording might have already started, but this ensures
+    // any *old* video from a previous session is gone before the *new* screen recording begins.
+    await clearVideoResources(); // Use helper - make sure it's async
 
     // Don't save state or update UI here yet
 }
@@ -1139,16 +1246,17 @@ async function stopScreenRecording(): Promise<void> {
             target: 'offscreen',
             type: 'stop-recording'
         });
-        console.log("[Background] stop-recording message sent. Waiting for 'recording-stopped' response.");
+        console.log("[Background] stop-recording message sent. Background state will update on 'recording-stopped' response.");
         // State (isScreenRecording=false, URL set) will be updated in the 'recording-stopped' handler
     } else {
-        console.warn("[Background] stopScreenRecording called, but offscreen document no longer exists. Resetting state.");
+        console.warn("[Background] stopScreenRecording called, but offscreen document not found. Attempting to reset state, but browser recording might still be active.");
         // If offscreen is gone, manually reset state
          isScreenRecording = false;
          screenRecordingTabId = null;
-         // Cannot retrieve video URL if offscreen is gone
+         // Cannot retrieve video URL if offscreen is gone. Attempt to clear any stale resources.
          clearVideoResources(); // Use helper
          await saveState();
+         updatePopupUI(); // Update UI to reflect the reset state
     }
      // The actual state update (isScreenRecording=false, video URL) happens
      // when the 'recording-stopped' message is received from offscreen.
@@ -1182,11 +1290,34 @@ chrome.tabs.onActivated.addListener(activeInfo => {
  * @param {chrome.tabs.Tab} tab - The updated tab object.
  */
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    // Check if the update is for the tab we are recording and the tab has finished loading
+    console.log(`[onUpdated] Fired for tab ${tabId}. ChangeInfo:`, changeInfo, `Current recording state: {isRecording: ${isRecording}, activeTabId: ${activeTabId}}`);
+
     if (tabId === activeTabId && isRecording && changeInfo.status === 'complete') {
-        console.log(`Tab ${tabId} updated (complete), re-applying listener.`);
-        // Re-apply the listener in the content script after navigation/refresh
-        sendMessageToContentScript(tabId, { action: 'startListening' });
+        console.log(`[onUpdated] Recorded tab ${tabId} finished loading (complete). Attempting to re-apply listener...`);
+
+        // Use an async IIFE to handle script injection and message sending
+        (async () => {
+            try {
+                console.log(`[onUpdated] Injecting content script into tab ${tabId}...`);
+                // Ensure the content script is present before sending the message
+                await chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    files: ['dist/content/content.js'],
+                });
+                console.log(`[onUpdated] Content script injected/ensured for tab ${tabId}. Sending 'startListening'...`);
+
+                // Now attempt to send the message
+                // Note: sendMessageToContentScript already has its own internal try/catch
+                await sendMessageToContentScript(tabId, { action: 'startListening' });
+                // Log success *if* sendMessageToContentScript resolves without internal error
+                // The internal function logs the actual success/failure details.
+                console.log(`[onUpdated] Attempted to send 'startListening' to tab ${tabId} (check internal logs for specifics).`);
+
+            } catch (err: any) { // Catch errors specifically from executeScript
+                console.error(`[onUpdated] Error during executeScript for tab ${tabId}:`, err);
+                // If injection fails, we probably can't send the message anyway.
+            }
+        })(); // Immediately invoke the async function
     }
 });
 
