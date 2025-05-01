@@ -4,6 +4,9 @@ import { getHostname, getCurrentDateString } from "../common/utils.js";
 import { updatePageData } from "./storageManager.js";
 import { TabState } from "../common/types.js";
 
+// Flag to ensure listeners are only set up once
+let listenersRegistered = false;
+
 // Function to handle state transitions
 async function handleStateTransition(tabId: number, update: Partial<Omit<TabState, 'stateStartTime' | 'firstSeenToday'>>): Promise<void> {
     const timestamp = Date.now();
@@ -18,6 +21,10 @@ async function handleStateTransition(tabId: number, update: Partial<Omit<TabStat
 }
 
 export function setupListeners(): void {
+    if (listenersRegistered) {
+        console.log("Listeners already registered, skipping setup.");
+        return;
+    }
     console.log("Setting up listeners...");
 
     // --- Tab Listeners --- //
@@ -26,7 +33,7 @@ export function setupListeners(): void {
         console.log(`Tab created: ${tab.id}`);
         if (tab.id) {
             // Add with initial state, actual state refined by onUpdated/onActivated
-            stateManager.addOrUpdateTab(tab.id, tab, Date.now());
+            stateManager.addOrUpdateTab(tab, Date.now());
         }
     });
 
@@ -73,9 +80,16 @@ export function setupListeners(): void {
                 } else if (urlChanged) {
                     // If URL changed TO an invalid one, handle removal via stateManager
                     const timestamp = Date.now();
-                    const previousState = stateManager.updateTabState(tabId, { url: tab.url }, timestamp); // title will be handled within updateTabState
+                    const newHostname = getHostname(tab.url); // Get the (invalid) hostname
+                    const newTitle = tab.url || ''; // Use URL as title for invalid URLs
+                    console.log(`[eventListeners] URL changed to invalid: ${tab.url}. Updating state before removal.`);
+                    // Update state with invalid URL info before calculating final time
+                    const previousState = stateManager.updateTabState(tabId, { url: tab.url, hostname: newHostname, title: newTitle }, timestamp);
                      if (previousState) {
                         await timeUpdater.calculateAndUpdateTime(previousState, timestamp);
+                    } else {
+                         // If updateTabState returned null (e.g., tab was already removed), no need to calculate time
+                         console.warn(`[eventListeners] No previous state found for tab ${tabId} after URL changed to invalid. Time calculation skipped.`);
                     }
                 }
             }
@@ -103,7 +117,7 @@ export function setupListeners(): void {
             // Try fetching tab info and adding/updating it
              try {
                 const tab = await chrome.tabs.get(activeInfo.tabId);
-                stateManager.addOrUpdateTab(activeInfo.tabId, tab, currentTimestamp);
+                stateManager.addOrUpdateTab(tab, currentTimestamp);
                  await handleStateTransition(activeInfo.tabId, { isActive: true }); // Now activate it
             } catch (error) {
                 console.error(`Error getting tab info for activation: ${activeInfo.tabId}`, error);
@@ -129,18 +143,17 @@ export function setupListeners(): void {
         const focusGained = windowId !== chrome.windows.WINDOW_ID_NONE;
         console.log(`Window focus changed: ${focusGained ? `Gained by Window ${windowId}` : 'Lost by Chrome (WINDOW_ID_NONE)'}`);
         const currentTimestamp = Date.now();
-        const allTabs = stateManager.getAllTabs();
+        const allTabs = stateManager.getAllTabs(); // Returns Map<number, TabState>
 
-        for (const tabIdStr in allTabs) {
-            const tabId = parseInt(tabIdStr, 10);
-            const tabState = allTabs[tabId];
+        // Iterate over Map entries
+        for (const [tabId, tabState] of allTabs.entries()) {
+            // Skip if tabState is somehow undefined (shouldn't happen with Map)
+            if (!tabState) continue;
+
             const isNowFocused = tabState.windowId === windowId;
 
             if (tabState.isFocused !== isNowFocused) {
                  console.log(`   Updating focus for Tab ${tabId} (Window ${tabState.windowId}). WasFocused: ${tabState.isFocused}, IsNowFocused: ${isNowFocused}`);
-                // Check state BEFORE the update is applied
-                const currentStateBeforeUpdate = stateManager.getTabState(tabId);
-                console.log(`   Tab ${tabId} state BEFORE focus update: ${JSON.stringify(currentStateBeforeUpdate)}`);
                 await handleStateTransition(tabId, { isFocused: isNowFocused });
             }
         }
@@ -152,11 +165,12 @@ export function setupListeners(): void {
         console.log(`Idle state changed: ${newState}`);
         const isNowIdle = newState !== 'active'; // 'idle' or 'locked' means user is idle
         const currentTimestamp = Date.now();
-        const allTabs = stateManager.getAllTabs();
+        const allTabs = stateManager.getAllTabs(); // Returns Map<number, TabState>
 
-        for (const tabIdStr in allTabs) {
-            const tabId = parseInt(tabIdStr, 10);
-            const tabState = allTabs[tabId];
+        // Iterate over Map entries
+        for (const [tabId, tabState] of allTabs.entries()) {
+             // Skip if tabState is somehow undefined (shouldn't happen with Map)
+            if (!tabState) continue;
 
             // Idle state only affects tabs that are currently active and focused
             if (tabState.isActive && tabState.isFocused && tabState.isIdle !== isNowIdle) {
@@ -181,4 +195,44 @@ export function setupListeners(): void {
     // });
 
     console.log("Listeners setup complete.");
+    listenersRegistered = true; // Mark as registered
 }
+
+// Optional: Add a listener for when the extension is shutting down (e.g., update/disable)
+// This helps ensure final data points are saved.
+chrome.runtime.onSuspend.addListener(() => {
+    console.log("Extension suspending. Saving final tab states.");
+    const shutdownTimestamp = Date.now();
+    const allTabs = stateManager.getAllTabs(); // Returns Map<number, TabState>
+
+    // Use Promise.allSettled to wait for all async updates to complete
+    // Iterate over Map entries for onSuspend as well
+    const updatePromises = Array.from(allTabs.entries()).map(async ([tabId, tabState]) => {
+        // const tabId = Number(rawId); // No longer needed
+        // Check for required fields in tabState
+        if (!tabState || !tabState.url || !tabState.hostname || !tabState.firstSeenToday) { // Corrected check
+            console.warn(`[onSuspend] Skipping invalid tab state for ID ${tabId}`);
+            return; // skip incomplete state
+        }
+
+        try {
+            // 1. Calculate and save the final time chunk before suspension
+            console.log(`[onSuspend] Calculating final time for tab ${tabId}`);
+            await timeUpdater.calculateAndUpdateTime(tabState, shutdownTimestamp);
+
+            // 2. Update the lastSeen timestamp specifically for this page
+            console.log(`[onSuspend] Updating lastSeen for tab ${tabId} to ${new Date(shutdownTimestamp).toISOString()}`);
+            await updatePageData(getCurrentDateString(), tabState.hostname, tabState.url, { lastSeen: shutdownTimestamp });
+
+        } catch (error) {
+            console.error(`[onSuspend] Error processing tab ${tabId}:`, error);
+        }
+    });
+
+    // Although onSuspend doesn't guarantee completion of async ops, we try.
+    Promise.allSettled(updatePromises).then(() => {
+        console.log("[onSuspend] Finished attempting final state saves.");
+    });
+
+    // No timer interval to clear based on current code structure
+});

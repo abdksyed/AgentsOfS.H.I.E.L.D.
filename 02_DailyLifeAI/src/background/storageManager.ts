@@ -2,6 +2,34 @@ import { TrackedData, DailyData, PageData, HostnameData } from "../common/types.
 
 const STORAGE_KEY = "dailyLifeAIData";
 
+// --- Concurrency Control for saving --- //
+let isSaving = false;
+const saveQueue: (() => Promise<void>)[] = [];
+
+async function processSaveQueue(): Promise<void> {
+    if (isSaving || saveQueue.length === 0) {
+        return;
+    }
+    isSaving = true;
+    const saveDataOperation = saveQueue.shift();
+
+    if (saveDataOperation) {
+        try {
+            await saveDataOperation();
+        } catch (error) {
+            console.error("Error during queued save operation:", error);
+        } finally {
+            isSaving = false;
+            // Process next item immediately if queue not empty
+            processSaveQueue();
+        }
+    } else {
+        // Should not happen if length > 0, but good practice
+        isSaving = false;
+    }
+}
+// --- End Concurrency Control --- //
+
 /**
  * Retrieves all tracked data from storage.
  */
@@ -55,59 +83,77 @@ export async function getDataForRange(startDate: string, endDate: string): Promi
 /**
  * Updates the data for a specific page URL on a specific date.
  * Merges the provided partial data with existing data.
+ * Uses a queue to handle potential concurrency issues.
  */
-export async function updatePageData(date: string, hostname: string, url: string, dataUpdate: Partial<PageData>): Promise<void> {
-    if (!hostname || !url || hostname === 'invalid_url' || hostname === 'no_url') {
-        console.warn(`Attempted to update data for invalid host/url: ${hostname}, ${url}`);
-        return;
-    }
+export function updatePageData(date: string, hostname: string, url: string, dataUpdate: Partial<PageData>): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const task = async () => {
+            if (!hostname || !url || hostname === 'invalid_url' || hostname === 'no_url') {
+                console.warn(`Attempted to update data for invalid host/url: ${hostname}, ${url}`);
+                // Reject the promise for this specific task
+                reject(new Error(`Invalid host/url in updatePageData: ${hostname}, ${url}`));
+                return;
+            }
 
-    const allData = await getAllData();
+            try {
+                const allData = await getAllData();
 
-    // Ensure day data exists
-    if (!allData[date]) {
-        allData[date] = {};
-    }
-    const dayData = allData[date];
+                // Ensure day data exists
+                if (!allData[date]) {
+                    allData[date] = {};
+                }
+                const dayData = allData[date];
 
-    // Ensure hostname data exists
-    if (!dayData[hostname]) {
-        dayData[hostname] = {};
-    }
-    const hostData = dayData[hostname];
+                // Ensure hostname data exists
+                if (!dayData[hostname]) {
+                    dayData[hostname] = {};
+                }
+                const hostData = dayData[hostname];
 
-    // Get existing page data or initialize if new
-    const isNewEntry = !hostData[url];
-    const existingPageData = hostData[url] || {
-        totalOpenMs: 0,
-        activeFocusedMs: 0,
-        activeUnfocusedMs: 0,
-        idleMs: 0,
-        firstSeen: dataUpdate.firstSeen || Date.now(), // Use provided firstSeen if available (only on creation)
-        lastSeen: Date.now(),
-        lastUpdated: Date.now(),
-        title: dataUpdate.title || url // Initialize title, fallback to url
-    };
+                // Get existing page data or initialize if new
+                const isNewEntry = !hostData[url];
+                const existingPageData = hostData[url] || {
+                    totalOpenMs: 0,
+                    activeFocusedMs: 0,
+                    activeUnfocusedMs: 0,
+                    idleMs: 0,
+                    firstSeen: dataUpdate.firstSeen || Date.now(), // Use provided firstSeen if available (only on creation)
+                    lastSeen: Date.now(),
+                    lastUpdated: Date.now(),
+                    title: dataUpdate.title || url // Initialize title, fallback to url
+                };
 
-    // Merge updates, incrementing time values
-    const updatedPageData: PageData = {
-        ...existingPageData,
-        activeFocusedMs: (existingPageData.activeFocusedMs || 0) + (dataUpdate.activeFocusedMs || 0),
-        activeUnfocusedMs: (existingPageData.activeUnfocusedMs || 0) + (dataUpdate.activeUnfocusedMs || 0),
-        idleMs: (existingPageData.idleMs || 0) + (dataUpdate.idleMs || 0),
-        // Update timestamps
-        lastSeen: dataUpdate.lastSeen !== undefined ? dataUpdate.lastSeen : Date.now(),
-        lastUpdated: Date.now(),
-        // Update title only if provided in the update, otherwise keep existing
-        title: dataUpdate.title !== undefined ? dataUpdate.title : existingPageData.title,
-        // Ensure firstSeen is only set on genuine new entries
-        firstSeen: isNewEntry ? (dataUpdate.firstSeen || existingPageData.firstSeen) : existingPageData.firstSeen
-    };
+                // Merge updates, incrementing time values
+                const updatedPageData: PageData = {
+                    ...existingPageData,
+                    activeFocusedMs: (existingPageData.activeFocusedMs || 0) + (dataUpdate.activeFocusedMs || 0),
+                    activeUnfocusedMs: (existingPageData.activeUnfocusedMs || 0) + (dataUpdate.activeUnfocusedMs || 0),
+                    idleMs: (existingPageData.idleMs || 0) + (dataUpdate.idleMs || 0),
+                    // Update timestamps
+                    lastSeen: dataUpdate.lastSeen !== undefined ? dataUpdate.lastSeen : Date.now(),
+                    lastUpdated: Date.now(),
+                    // Update title only if provided in the update, otherwise keep existing
+                    title: dataUpdate.title !== undefined ? dataUpdate.title : existingPageData.title,
+                    // Ensure firstSeen is only set on genuine new entries
+                    firstSeen: isNewEntry ? (dataUpdate.firstSeen || existingPageData.firstSeen) : existingPageData.firstSeen,
+                    // Ensure totalOpenMs is handled correctly if still present (it might be removed by other edits)
+                    totalOpenMs: existingPageData.totalOpenMs || 0 // Preserve existing if not explicitly updated
+                };
 
-    hostData[url] = updatedPageData;
+                hostData[url] = updatedPageData;
 
-    // Save the modified data
-    await saveData(allData);
+                // Save the modified data
+                await saveData(allData);
+                resolve(); // Resolve the promise for this task
+            } catch (error) {
+                console.error(`Error during updatePageData task for ${url}:`, error);
+                reject(error); // Reject the promise for this task
+            }
+        };
+
+        saveQueue.push(task);
+        processSaveQueue();
+    });
 }
 
 /**

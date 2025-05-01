@@ -1,45 +1,77 @@
-# DailyLifeAI Time Tracker Chrome Extension
+# DailyLifeAI - Chrome Extension
 
-This Chrome extension monitors the websites you visit and tracks the time spent on each page.
+Tracks time spent on websites, distinguishing between active (focused window, non-idle) and inactive time.
 
 ## Features
 
-*   Tracks time spent on websites (HTTP/HTTPS).
-*   Distinguishes between:
-    *   Active & Focused time
-    *   Active & Unfocused time
-    *   Idle time (when active & focused)
-*   Stores data locally using `chrome.storage.local`.
-*   Provides a statistics page accessible via the extension popup.
-*   Allows viewing statistics by date range (Today, Yesterday, Last 7/30 Days, This Month, All Time, Custom).
-*   Allows exporting statistics to CSV.
+- **Time Tracking:** Records total time a tab is open, active focused time, active unfocused time, and idle time.
+- **Daily Stats:** Aggregates data per day.
+- **Stats Page:** View aggregated statistics by hostname and individual pages within a selected date range.
+- **CSV Export:** Export the displayed statistics to a CSV file.
+- **Background Sync:** Uses `chrome.storage.local` for persistence.
 
-## Development
+## How Time is Tracked
 
-1.  **Prerequisites:** Node.js and npm installed.
-2.  **Install Dependencies:** `npm install`
-3.  **Build:** `npm run build` (compiles TypeScript and copies files to `dist/`)
-4.  **Watch for Changes:**
-    *   `npm run watch:ts` (in one terminal for TypeScript compilation)
-    *   Manually run `npm run copy-static` after HTML/CSS changes, or use a more advanced setup with concurrent watching.
+The extension monitors several browser events to determine the state of each tab:
 
-## Installation (Development)
+- **Tab Open/Close:** Basic tracking of when a tab exists.
+- **Tab Activation:** When a user switches between tabs.
+- **Window Focus:** When the user switches focus between Chrome windows or other applications.
+- **System Idle State:** Uses `chrome.idle` to detect if the user is away from the keyboard (idle threshold defined by Chrome, typically 1 minute).
 
-1.  Build the extension using `npm run build`.
-2.  Open Chrome and navigate to `chrome://extensions/`.
-3.  Enable "Developer mode" (usually a toggle in the top right).
-4.  Click "Load unpacked".
-5.  Select the `dist` directory within the `02_DailyLifeAI` project folder.
-6.  The extension icon should appear in your toolbar.
+The time spent in each state is calculated:
+
+- **Active Focused:** Tab is active in its window, the window is focused by the OS, and the system is *not* idle.
+- **Active Unfocused:** Tab is active in its window, but the window is *not* focused by the OS (e.g., user is in another app).
+- **Idle:** Tab is active, window is focused, but the system *is* idle.
+- **Inactive/Background:** Tab is not the active tab in its window.
+- **Total Open:** The total duration from when a page (URL) was first seen today until it was last seen today.
+
+This provides a more granular view than just tracking total time open, helping understand how much time you spend actively using different websites versus just having them open, **Time Calculation:** is based on state transitions. When a tab's state changes (e.g., from active/focused to idle), the duration of the previous state is calculated and saved.
+
+## Setup & Build
+
+1.  **Clone/Download:** Get the code.
+2.  **Install Dependencies:**
+    ```bash
+    cd 02_DailyLifeAI
+    npm install
+    ```
+3.  **Build:**
+    ```bash
+    npm run build
+    ```
+    This compiles the TypeScript files into the `dist/` directory.
+
+## Installation (Chrome/Edge)
+
+1.  Open Chrome/Edge and go to `chrome://extensions` or `edge://extensions`.
+2.  Enable **Developer mode** (usually a toggle in the top-right corner).
+3.  Click **Load unpacked**.
+4.  Select the `02_DailyLifeAI/dist` directory (the one created by the build step).
+5.  The extension icon should appear in your toolbar.
 
 ## Usage
 
-*   The extension runs in the background, automatically tracking time.
-*   Click the extension icon in the toolbar.
-*   Click "View Statistics" to open the statistics page.
-*   Use the dropdown or custom date pickers to select a time range.
-*   Click "Export as CSV" to download the currently displayed data.
-*   Right-click the extension icon and select "Clear DailyLifeAI Tracking Data" to clear all stored history (for debugging).
+- The extension runs in the background, automatically tracking time.
+- **Popup:** Clicking the extension icon shows a basic status (this could be enhanced).
+- **Stats Page:**
+  - Right-click the extension icon and select "View Statistics".
+  - Or find the "DailyLifeAI Stats" entry on the `chrome://extensions` page and click "Details" -> "Extension options".
+  - Select a date range and click "Load Stats".
+  - Click on hostname rows to expand/collapse individual page details.
+  - Click table headers to sort.
+  - Click "Export CSV" to download the current view.
+
+## Technical Details
+
+- **Manifest V3:** Uses the current Chrome extension manifest version.
+- **Service Worker:** Background logic runs in a service worker (`background/index.ts`).
+- **TypeScript:** Codebase is written in TypeScript for better type safety and maintainability.
+- **Modules:** Code is organized into modules (background, common, popup, stats).
+- **Storage:** Uses `chrome.storage.local` to store daily aggregated data.
+- **State Management:** In-memory state (`background/stateManager.ts`) tracks the current status of each tab (URL, focus, idle state, etc.) to calculate time spent in each state accurately between events.
+- **Error Handling:** Basic error handling for storage and API calls.
 
 ## Nerdy Details (How Time Tracking Works)
 

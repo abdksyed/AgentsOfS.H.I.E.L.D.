@@ -1,165 +1,184 @@
-import { ActiveTabs, TabState } from "../common/types.js";
 import { getHostname } from "../common/utils.js";
+import { ActiveTabs, TabState } from "../common/types.js";
 
-let activeTabs: ActiveTabs = {};
-
-/**
- * Gets the current state of a specific tab.
- */
-export function getTabState(tabId: number): TabState | null {
-    return activeTabs[tabId] || null;
-}
+// Use Map for better performance and type safety with numeric keys
+const activeTabs: Map<number, TabState> = new Map();
 
 /**
- * Gets the state of all currently tracked tabs.
+ * Adds or updates the state of a tab.
+ * Derives tabId from the tab object.
  */
-export function getAllTabs(): ActiveTabs {
-    return { ...activeTabs }; // Return a copy
-}
-
-/**
- * Adds a new tab to the tracking state or updates an existing one minimally.
- */
-export function addOrUpdateTab(tabId: number, tab: chrome.tabs.Tab, initialTimestamp: number): void {
-    if (!tab.url || !tab.id) return; // Don't track tabs without URLs or IDs
+export function addOrUpdateTab(tab: chrome.tabs.Tab, timestamp: number): void {
+    // Ensure tab.id exists before proceeding
+    if (tab.id === undefined) {
+        console.warn("[stateManager] addOrUpdateTab called with undefined tab.id", tab);
+        return;
+    }
+    const tabId = tab.id;
 
     const hostname = getHostname(tab.url);
-    if (hostname === 'invalid_url' || hostname === 'no_url') return; // Don't track invalid URLs
+    // Filter out unsupported URLs early
+    if (['invalid_url', 'no_url', 'other_scheme', 'about_page'].includes(hostname)) {
+        console.log(`[stateManager] Ignoring unsupported URL for tab ${tabId}: ${tab.url}`);
+        // If the tab exists, remove it
+        if (activeTabs.has(tabId)) {
+            removeTab(tabId); // No time calculation needed here, handled by event source
+        }
+        return;
+    }
 
-    // Spread existing state first, then apply defaults/updates
-    activeTabs[tabId] = {
-        ...(activeTabs[tabId] || {}),
-        url: tab.url,
+    const existingState = activeTabs.get(tabId);
+
+    const newState: TabState = {
+        url: tab.url || '',
         hostname: hostname,
-        title: tab.title || tab.url, // Capture title, fallback to URL
         windowId: tab.windowId,
-        isActive: tab.active || false,
-        isFocused: false, // Assume not focused initially, window focus event will correct
-        isIdle: false, // Assume not idle initially
-        stateStartTime: initialTimestamp,
-        // Only set firstSeenToday if the tab is genuinely new to tracking
-        firstSeenToday: activeTabs[tabId]?.firstSeenToday || initialTimestamp,
+        isActive: tab.active,
+        // Focus needs to be determined globally, default to window focus
+        isFocused: tab.windowId === chrome.windows.WINDOW_ID_NONE ? false : (existingState?.isFocused ?? tab.active), // Keep existing focus or default to active
+        isIdle: existingState?.isIdle ?? false, // Keep existing idle state or default to false
+        stateStartTime: existingState?.stateStartTime || timestamp,
+        firstSeenToday: existingState?.firstSeenToday || timestamp, // Track when URL was first seen today
+        title: tab.title || tab.url || '' // Use title, fallback to url
     };
+
+    // Update state if significantly different or new
+    if (!existingState || existingState.url !== newState.url || existingState.title !== newState.title) {
+        console.log(`[stateManager] Adding/Updating Tab ${tabId} - URL: ${newState.url}, Title: ${newState.title}`);
+        activeTabs.set(tabId, newState);
+    } else {
+        console.log(`[stateManager] Tab ${tabId} state unchanged, not overwriting.`);
+    }
 }
 
 /**
- * Updates the state of a specific tab and returns its previous state.
+ * Retrieves the current state of a specific tab.
  */
-export function updateTabState(tabId: number, updates: Partial<Omit<TabState, 'stateStartTime' | 'firstSeenToday'>>, timestamp: number): TabState | null {
-    const previousState = getTabState(tabId);
-    if (!previousState) {
-        console.warn(`Attempted to update non-tracked tabId: ${tabId}`);
-        return null;
+export function getTabState(tabId: number): TabState | undefined {
+    return activeTabs.get(tabId);
+}
+
+/**
+ * Updates specific properties of a tab's state and returns the previous state.
+ */
+export function updateTabState(tabId: number, update: Partial<TabState>, timestamp: number): TabState | null {
+    const current = activeTabs.get(tabId);
+    if (!current) {
+        console.warn(`[stateManager] updateTabState called for untracked tab ID: ${tabId}`);
+        return null; // Indicate no previous state
     }
 
-    const isNewUrl = updates.url && updates.url !== previousState.url;
-    let newHostname = previousState.hostname;
-    let newFirstSeen = previousState.firstSeenToday;
-    let newTitle = updates.title !== undefined ? updates.title : previousState.title; // Prioritize incoming title update
+    const previousState: TabState = { ...current }; // Copy before mutation
+    console.log(`[stateManager] Updating tab ${tabId}. Current: ${JSON.stringify(current)}, Update: ${JSON.stringify(update)}`);
 
-    // Handle URL change specifically
-    if (isNewUrl && updates.url) {
-        newHostname = getHostname(updates.url);
-        if (newHostname === 'invalid_url' || newHostname === 'no_url') {
-            console.warn(`Tab ${tabId} changed to invalid URL: ${updates.url}. Removing from tracking.`);
-            removeTab(tabId);
-            return previousState; // Return the state before removal
-        }
-        newFirstSeen = timestamp; // Reset firstSeen for the new URL
-        // If URL changes, also update the title from the update if provided, otherwise keep existing
-        newTitle = updates.title || updates.url; // Update title on URL change, fallback to URL
+    // Check if URL makes it invalid - if so, remove from tracking
+    const newUrl = update.url !== undefined ? update.url : current.url; // Prioritize update URL
+    const newHostname = getHostname(newUrl);
+    if (newHostname === 'invalid_url' || newHostname === 'no_url') {
+        console.warn(`[stateManager] Tab ${tabId} URL changed to invalid: ${newUrl}. Removing from tracking.`);
+        removeTab(tabId); // Remove it
+        return previousState; // Return the state just before removal
     }
 
-    // Update the state, applying calculated hostname/firstSeen/title if URL changed
-    activeTabs[tabId] = {
-        ...previousState,
-        ...updates,
-        hostname: newHostname, // Apply potentially updated hostname
-        firstSeenToday: newFirstSeen, // Apply potentially reset firstSeen
-        title: newTitle, // Apply updated title
-        stateStartTime: timestamp // Always reset start time on state change
+    const newState: TabState = {
+        ...current,
+        ...update, // Apply updates
+        url: newUrl,
+        hostname: newHostname,
+        stateStartTime: timestamp, // Reset start time for the new state
+        firstSeenToday: current.firstSeenToday, // Preserve original firstSeenToday
+         // Title logic: Use update title if provided, else current, fallback to newUrl if needed
+        title: update.title !== undefined ? update.title : (current.title || newUrl)
     };
 
-    return previousState;
+    // Handle specific state logic (e.g., focus affects idle)
+    if (newState.isFocused === false) newState.isIdle = false; // Cannot be idle if window not focused
+    if (newState.isActive === false) newState.isIdle = false; // Cannot be idle if tab not active
+
+    activeTabs.set(tabId, newState);
+    console.log(`[stateManager] Tab ${tabId} new state: ${JSON.stringify(newState)}`);
+
+    return previousState; // Return the state *before* this update
 }
 
 /**
  * Removes a tab from tracking and returns its final state.
  */
 export function removeTab(tabId: number): TabState | null {
-    const finalState = getTabState(tabId);
+    const finalState = activeTabs.get(tabId);
     if (finalState) {
-        delete activeTabs[tabId];
+        activeTabs.delete(tabId);
+        console.log(`[stateManager] Removed tab ${tabId}. Final state: ${JSON.stringify(finalState)}`);
+        return finalState;
+    } else {
+        console.warn(`[stateManager] Attempted to remove untracked tab ID: ${tabId}`);
+        return null;
     }
-    return finalState;
 }
 
 /**
- * Finds the ID of the currently active tab in a given window.
+ * Returns a deep copy of the active tabs map.
+ */
+export function getAllTabs(): Map<number, TabState> {
+    return structuredClone(activeTabs);
+}
+
+/**
+ * Finds the first tab ID in a given window that is marked as active.
  */
 export function findActiveTabInWindow(windowId: number): number | null {
-    for (const tabId in activeTabs) {
-        const tab = activeTabs[tabId];
-        // Ensure tabId is treated as a number for comparison if necessary, though windowId is the primary check
-        if (tab.windowId === windowId && tab.isActive) {
-            return parseInt(tabId, 10);
+    for (const [tabId, tabState] of activeTabs.entries()) {
+        if (tabState.windowId === windowId && tabState.isActive) {
+            return tabId;
         }
     }
     return null;
 }
 
 /**
- * Initializes the state by querying all existing tabs and windows.
+ * Initializes the state by querying existing tabs and windows.
  */
 export async function initializeState(): Promise<void> {
-    console.log("Initializing extension state...");
-    const initialTimestamp = Date.now();
-    activeTabs = {}; // Reset state
+    console.log("[stateManager] Initializing state...");
+    activeTabs.clear(); // Start fresh
 
     try {
-        // 1. Get all relevant windows (normal type)
-        const windows = await chrome.windows.getAll({ populate: true, windowTypes: ['normal'] });
-
-        // 2. Determine the currently focused window (if any)
-        let focusedWindowId: number | null = null;
-        const focusedWindow = await new Promise<chrome.windows.Window | null>((resolve) => {
-            // Use getLastFocused, ensuring we handle potential errors or undefined returns
-            chrome.windows.getLastFocused({ populate: false, windowTypes: ['normal'] }, (window) => {
-                if (chrome.runtime.lastError) {
-                    console.warn("Error getting last focused window:", chrome.runtime.lastError.message);
-                    resolve(null);
-                } else {
-                    resolve(window || null);
-                }
-            });
-        });
-        focusedWindowId = focusedWindow?.id ?? null;
-
-        // 3. Iterate through windows and their tabs to populate initial state
-        for (const window of windows) {
-            if (window.tabs && window.id !== undefined) { // Ensure window.id is defined
-                const isWindowFocused = (window.id === focusedWindowId);
-                for (const tab of window.tabs) {
-                    if (tab.id) {
-                        // Add the tab with its basic info (including title)
-                        addOrUpdateTab(tab.id, tab, initialTimestamp);
-
-                        // Now refine the state based on focus
-                        if (activeTabs[tab.id]) {
-                            activeTabs[tab.id].isFocused = isWindowFocused;
-                            // Reset startTime again to reflect the *final* initial state calculation
-                            activeTabs[tab.id].stateStartTime = initialTimestamp;
-                        }
-                    }
-                }
+        const windows = await chrome.windows.getAll({ populate: true });
+        let focusedWindowId: number = chrome.windows.WINDOW_ID_NONE as number; // Explicitly type as number
+        windows.forEach(window => {
+            // Ensure window.id is a number before assigning
+            if (window.focused && typeof window.id === 'number') {
+                focusedWindowId = window.id;
             }
-        }
+        });
+        console.log(`[stateManager] Found ${windows.length} windows. Focused Window ID: ${focusedWindowId}`);
 
-        console.log("Initial state loaded:", Object.keys(activeTabs).length, "tabs tracked.");
-        // Use JSON.stringify for potentially large objects
-        // console.log("Initial state details:", JSON.stringify(activeTabs, null, 2));
+        const processTabPromises = windows.flatMap(window =>
+            (window.tabs || []).map(async tab => {
+                if (tab.id !== undefined) {
+                    const windowIsFocused = typeof window.id === 'number' && window.id === focusedWindowId;
+                    const isGloballyFocused = windowIsFocused && tab.active;
+                    console.log(`[stateManager] Processing Tab ${tab.id} in Window ${window.id}. Active: ${tab.active}, WinFocused: ${windowIsFocused}, TabFocused: ${isGloballyFocused}`);
+                    // Use addOrUpdateTab which handles filtering and state creation
+                    addOrUpdateTab(tab, Date.now());
+                    // Explicitly set focus state AFTER adding/updating base info
+                    if (activeTabs.has(tab.id)) { // Check if it was actually added (not filtered)
+                         // Pass timestamp to ensure stateStartTime is updated correctly
+                         updateTabState(tab.id, { isFocused: isGloballyFocused, isActive: tab.active }, Date.now());
+                    }
+                } else {
+                     console.warn("[stateManager] Found a tab without an ID during initialization.", tab);
+                }
+            })
+        );
+
+        await Promise.allSettled(processTabPromises);
+
+        console.log(`[stateManager] Initial state loaded. ${activeTabs.size} tabs tracked.`);
+        console.log("Initial tracked tabs:", Object.fromEntries(activeTabs));
 
     } catch (error) {
-        console.error("Error during initializeState:", error);
+        console.error("[stateManager] Error during state initialization:", error);
+        activeTabs.clear();
     }
 }

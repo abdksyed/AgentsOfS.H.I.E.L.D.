@@ -16,14 +16,13 @@ const statsTableHeader = document.querySelector('#statsTable thead') as HTMLTabl
 // State to hold the currently fetched stats for export and sorting
 let currentStatsData: AggregatedHostnameData[] = [];
 // Use more specific type for sort keys derived from headers
-type SortableHeaderKey = 'hostname' | 'activeFocused' | 'activeUnfocused' | 'idle' | 'totalOpen' | 'firstSeen' | 'lastSeen';
+type SortableHeaderKey = 'hostname' | 'activeFocused' | 'activeUnfocused' | 'idle' | 'firstSeen' | 'lastSeen';
 // Map header keys to actual data keys for sorting
 const sortKeyMap: Record<SortableHeaderKey, keyof AggregatedHostnameData | 'hostname'> = {
     hostname: 'hostname',
     activeFocused: 'totalActiveFocusedMs',
     activeUnfocused: 'totalActiveUnfocusedMs',
     idle: 'totalIdleMs',
-    totalOpen: 'totalOpenMs',
     firstSeen: 'firstSeen',
     lastSeen: 'lastSeen'
 };
@@ -177,8 +176,8 @@ dateRangeSelect.addEventListener('change', () => {
         customDatePickersDiv.style.display = 'block';
          // Set default custom dates to today
          const todayStr = getDateRange()[0]; // Careful: calling getDateRange might trigger alerts if custom selected
-         if (!startDateInput.value) startDateInput.value = toYyyyMmDd(new Date());
-         if (!endDateInput.value) endDateInput.value = toYyyyMmDd(new Date());
+         if (!startDateInput.value) startDateInput.value = todayStr;
+         if (!endDateInput.value) endDateInput.value = todayStr;
     } else {
         customDatePickersDiv.style.display = 'none';
         loadAndDisplayStats(); // Reload stats for non-custom ranges
@@ -193,8 +192,8 @@ exportCsvButton.addEventListener('click', () => {
      if (currentStatsData.length > 0) {
         const [startDate, endDate] = getDateRange();
         const filename = `dailylifeai_stats_${startDate}_to_${endDate}.csv`;
-        // Pass the aggregated data for CSV export - This needs csvExporter to be updated
-        exportStatsToCsv(currentStatsData, filename); // Error here will be fixed in next step
+        // Pass the aggregated data for CSV export
+        exportStatsToCsv(currentStatsData, filename);
     } else {
         alert("No data loaded to export.");
     }
@@ -227,18 +226,21 @@ if (statsTableHeader) {
 
 // --- Initial Load --- //
 
-// Helper function for initial date setting to avoid calling getDateRange too early
+// Helper function for date formatting used in multiple places
 const toYyyyMmDd = (d: Date): string => {
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    };
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
-// Set default custom dates on initial load
-const todayStr = toYyyyMmDd(new Date());
-startDateInput.value = todayStr;
-endDateInput.value = todayStr;
+// Initialize date pickers and load initial stats
+document.addEventListener('DOMContentLoaded', () => {
+    // Set default custom dates if needed (e.g., to today)
+    const todayStr = toYyyyMmDd(new Date());
+    if (!startDateInput.value) startDateInput.value = todayStr;
+    if (!endDateInput.value) endDateInput.value = todayStr;
 
-// Load stats for the default range (Today) when the page loads
-document.addEventListener('DOMContentLoaded', loadAndDisplayStats);
+    // Initial load based on default selection (e.g., 'today')
+    loadAndDisplayStats();
+});

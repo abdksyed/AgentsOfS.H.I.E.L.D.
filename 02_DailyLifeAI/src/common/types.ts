@@ -17,12 +17,9 @@ export interface DailyData {
   [hostname: string]: HostnameData;
 }
 
-export interface TrackedData {
-  [dateString: string]: // YYYY-MM-DD
-    DailyData;
+export type TrackedData = {
+  [date: string]: DailyData;
 }
-
-export type TabActivityState = 'activeFocused' | 'activeUnfocused' | 'idle' | 'inactive';
 
 export interface TabState {
   url: string;
@@ -59,7 +56,7 @@ export interface AggregatedHostnameData {
     totalActiveFocusedMs: number;
     totalActiveUnfocusedMs: number;
     totalIdleMs: number;
-    totalOpenMs: number; // Calculated span (max lastSeen - min firstSeen)
+    // totalOpenMs: number; // Removed: Calculated span (max lastSeen - min firstSeen)
     firstSeen: number; // Earliest firstSeen across pages
     lastSeen: number; // Latest lastSeen across pages
     pages: DisplayStat[]; // Individual page stats under this host

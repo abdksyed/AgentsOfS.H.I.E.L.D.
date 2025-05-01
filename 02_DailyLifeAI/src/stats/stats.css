@@ -96,18 +96,19 @@ td:nth-child(2) {
     word-break: break-all;
 }
 
-/* Center align time columns */
+/* Center align all time and date columns */
 td:nth-child(3),
 td:nth-child(4),
 td:nth-child(5),
-td:nth-child(6) {
-    text-align: center;
-}
-
-/* Datetime columns */
+td:nth-child(6),
 td:nth-child(7),
 td:nth-child(8) {
     text-align: center;
+}
+
+/* Additional styling for datetime columns */
+td:nth-child(7),
+td:nth-child(8) {
     font-size: 0.9em;
     color: #555;
 }
@@ -166,16 +167,6 @@ th[data-sort-key].sort-desc::after {
 th:nth-child(2) { /* Adjust if header structure changes */
    /* Prevent sort indicator if it's just the title column */
    /* Or style differently */
-}
-
-/* Center align time and date columns (adjust indices if needed) */
-td:nth-child(3),
-td:nth-child(4),
-td:nth-child(5),
-td:nth-child(6),
-td:nth-child(7),
-td:nth-child(8) {
-    text-align: center;
 }
 
 .hostname-row td:nth-child(7),

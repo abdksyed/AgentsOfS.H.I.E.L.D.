@@ -64,14 +64,19 @@ export function renderStatsTable(aggregatedStats: AggregatedHostnameData[], tabl
         const cellHostIdle = hostRow.insertCell();
         cellHostIdle.textContent = formatTime(hostData.totalIdleMs);
 
-        const cellHostTotalOpen = hostRow.insertCell();
-        cellHostTotalOpen.textContent = formatTime(hostData.totalOpenMs);
+        // Calculate total time on the fly and display it
+        const cellHostTotalTime = hostRow.insertCell();
+        const totalTimeMs = (hostData.lastSeen && hostData.firstSeen && hostData.lastSeen > hostData.firstSeen)
+                            ? hostData.lastSeen - hostData.firstSeen
+                            : 0;
+        cellHostTotalTime.textContent = formatTime(totalTimeMs);
+        cellHostTotalTime.dataset.sortValue = totalTimeMs.toString();
 
         const cellHostFirstSeen = hostRow.insertCell();
-        cellHostFirstSeen.textContent = hostData.firstSeen ? new Date(hostData.firstSeen).toLocaleDateString() : '-';
+        cellHostFirstSeen.textContent = hostData.firstSeen ? new Date(hostData.firstSeen).toLocaleString() : '-';
 
         const cellHostLastSeen = hostRow.insertCell();
-        cellHostLastSeen.textContent = hostData.lastSeen ? new Date(hostData.lastSeen).toLocaleDateString() : '-';
+        cellHostLastSeen.textContent = hostData.lastSeen ? new Date(hostData.lastSeen).toLocaleString() : '-';
 
         // Add click listener to the host row for expansion
         hostRow.addEventListener('click', () => {
@@ -120,12 +125,18 @@ export function updateSummary(aggregatedStats: AggregatedHostnameData[]): void {
     const summaryElement = document.getElementById('totalTimeSummary');
     if (!summaryElement) return;
 
-    let totalActiveMs = 0;
+    let totalTrackedTimeMs = 0;
     aggregatedStats.forEach(hostData => {
-        totalActiveMs += (hostData.totalActiveFocusedMs || 0) +
-                         (hostData.totalActiveUnfocusedMs || 0) +
-                         (hostData.totalIdleMs || 0);
+        // Calculate host total time based on first/last seen for summary
+        const hostTotalTime = (hostData.lastSeen && hostData.firstSeen && hostData.lastSeen > hostData.firstSeen)
+                              ? hostData.lastSeen - hostData.firstSeen
+                              : 0;
+        // Summing active/unfocused/idle time for a measure of tracked activity within the span
+        totalTrackedTimeMs += (hostData.totalActiveFocusedMs || 0) +
+                             (hostData.totalActiveUnfocusedMs || 0) +
+                             (hostData.totalIdleMs || 0);
+        // If we want total span time, we could sum hostTotalTime instead/as well
     });
 
-    summaryElement.textContent = formatTime(totalActiveMs);
+    summaryElement.textContent = `Total Tracked Activity: ${formatTime(totalTrackedTimeMs)}`;
 }

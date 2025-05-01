@@ -30,11 +30,14 @@ stateManager.initializeState().then(() => {
 
     chrome.contextMenus.onClicked.addListener((info, tab) => {
         if (info.menuItemId === "clearDailyLifeAIData") {
-            clearAllData().then(() => {
-                console.log("Data cleared via context menu.");
-                // Optionally, re-initialize state after clearing
-                stateManager.initializeState();
-            });
+            // Add confirmation dialog
+            if (confirm("Are you sure you want to clear all DailyLifeAI tracking data? This action cannot be undone.")) {
+                clearAllData().then(() => {
+                    console.log("Data cleared via context menu.");
+                    // Optionally, re-initialize state after clearing
+                    stateManager.initializeState();
+                });
+            }
         }
     });
      // ------------------------------------ //

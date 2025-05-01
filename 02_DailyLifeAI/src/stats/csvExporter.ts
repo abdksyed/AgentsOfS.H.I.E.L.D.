@@ -1,5 +1,7 @@
 import { AggregatedHostnameData, DisplayStat } from "../common/types.js";
 import { generateCsv } from "../common/utils.js";
+// Import formatTime if you uncomment the empty hostnames section below
+// import { formatTime } from "../common/utils.js";
 
 /**
  * Flattens the aggregated data into a list of page stats for CSV export.

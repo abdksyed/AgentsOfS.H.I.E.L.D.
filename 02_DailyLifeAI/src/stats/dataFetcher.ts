@@ -26,6 +26,13 @@ async function getAllDataDirectly(): Promise<TrackedData> {
     }
 }
 
+// Helper function to compare pages by title
+function comparePagesByTitle(a: DisplayStat, b: DisplayStat): number {
+    if (a.title < b.title) return -1;
+    if (a.title > b.title) return 1;
+    return 0;
+}
+
 /**
  * Fetches data from storage for the specified range and aggregates it by hostname.
  */
@@ -34,13 +41,14 @@ export async function fetchAndProcessStats(startDateStr: string, endDateStr: str
     const allData = await getAllDataDirectly();
     const aggregatedHostData: { [hostname: string]: Omit<AggregatedHostnameData, 'hostname'> } = {};
 
-    const start = new Date(startDateStr + 'T00:00:00'); // Ensure start of day
-    const end = new Date(endDateStr + 'T23:59:59'); // Ensure end of day
+    // Use UTC for date comparisons to avoid timezone issues
+    const start = new Date(startDateStr + 'T00:00:00Z'); // Force UTC
+    const end = new Date(endDateStr + 'T23:59:59Z'); // Force UTC
 
     // Aggregate data across the date range
     for (const dateStr in allData) {
-        const currentDateOnlyStr = dateStr.substring(0, 10);
-        const currentDateOnly = new Date(currentDateOnlyStr + 'T00:00:00');
+        // Assuming dateStr is YYYY-MM-DD from getCurrentDateString()
+        const currentDateOnly = new Date(dateStr + 'T00:00:00Z'); // Force UTC
 
         if (currentDateOnly >= start && currentDateOnly <= end) {
             const dailyData = allData[dateStr];
@@ -51,7 +59,6 @@ export async function fetchAndProcessStats(startDateStr: string, endDateStr: str
                         totalActiveFocusedMs: 0,
                         totalActiveUnfocusedMs: 0,
                         totalIdleMs: 0,
-                        totalOpenMs: 0, // Will calculate final span later
                         firstSeen: Infinity,
                         lastSeen: 0,
                         pages: []
@@ -98,14 +105,9 @@ export async function fetchAndProcessStats(startDateStr: string, endDateStr: str
             totalActiveFocusedMs: data.totalActiveFocusedMs,
             totalActiveUnfocusedMs: data.totalActiveUnfocusedMs,
             totalIdleMs: data.totalIdleMs,
-            totalOpenMs: hostnameTotalOpenMs > 0 ? hostnameTotalOpenMs : 0,
             firstSeen: data.firstSeen === Infinity ? 0 : data.firstSeen, // Handle case where no data found
             lastSeen: data.lastSeen,
-            pages: data.pages.sort((a, b) => { // Sort pages within hostname (e.g., by title)
-                if (a.title < b.title) return -1;
-                if (a.title > b.title) return 1;
-                return 0;
-            })
+            pages: data.pages.sort(comparePagesByTitle)
         };
     });
 
