@@ -1,0 +1,23 @@
+{
+  "name": "02_dailylifeai",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "clean": "rm -rf dist",
+    "build:ts": "tsc",
+    "copy-src": "copyfiles -u 1 src/**/*.html src/**/*.css src/manifest.json dist/",
+    "copy-icons": "copyfiles \"icons/**/*\" dist/",
+    "build": "npm run clean && npm run build:ts && npm run copy-src && npm run copy-icons",
+    "watch:ts": "tsc --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/chrome": "^0.0.317",
+    "copyfiles": "^2.4.1",
+    "typescript": "^5.8.3"
+  }
+}

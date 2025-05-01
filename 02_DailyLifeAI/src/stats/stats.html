@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DailyLifeAI Statistics</title>
+    <link rel="stylesheet" href="stats.css">
+</head>
+<body>
+    <h1>Website Time Statistics</h1>
+
+    <div class="controls">
+        <label for="dateRange">Select Range:</label>
+        <select id="dateRange">
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="last7">Last 7 Days</option>
+            <option value="last30">Last 30 Days</option>
+            <option value="thisMonth">This Month</option>
+            <option value="all">All Time</option>
+            <option value="custom">Custom Range</option>
+        </select>
+
+        <div id="customDatePickers" style="display: none; margin-top: 10px;">
+            <label for="startDate">Start:</label>
+            <input type="date" id="startDate">
+            <label for="endDate" style="margin-left: 10px;">End:</label>
+            <input type="date" id="endDate">
+             <button id="applyCustomRange" style="margin-left: 10px;">Apply</button>
+        </div>
+
+        <button id="exportCsv">Export as CSV</button>
+    </div>
+
+    <div class="summary">
+        <p>Total Tracked Time: <span id="totalTimeSummary">--:--:--</span></p>
+        <!-- Add more summary stats if needed -->
+    </div>
+
+    <table id="statsTable">
+        <thead>
+            <tr>
+                <th style="width: 20px;"></th>
+                <th data-sort-key="hostname">Hostname / Page Title</th>
+                <th data-sort-key="activeFocused">Active & Focused</th>
+                <th data-sort-key="activeUnfocused">Active & Unfocused</th>
+                <th data-sort-key="idle">Idle Time</th>
+                <th data-sort-key="totalOpen">Total Open Time</th>
+                 <th data-sort-key="firstSeen">First Seen</th>
+                 <th data-sort-key="lastSeen">Last Seen</th>
+            </tr>
+        </thead>
+        <tbody id="statsTableBody">
+            <!-- Rows will be inserted here by stats.js -->
+             <tr><td colspan="8">Loading data...</td></tr>
+        </tbody>
+    </table>
+
+    <script src="stats.js" type="module"></script> <!-- Load as module -->
+</body>
+</html>
