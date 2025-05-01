@@ -1,23 +1,6 @@
-import { TabState, PageData } from "../common/types.js";
-import { getCurrentDateString } from "../common/utils.js";
-import * as storageManager from "./storageManager.js";
-
-/**
- * Determines the activity state based on tab properties.
- */
-function getActivityState(tabState: TabState): 'activeFocused' | 'activeUnfocused' | 'idle' | 'inactive' {
-    if (!tabState.isActive) {
-        return 'inactive';
-    }
-    if (!tabState.isFocused) {
-        return 'activeUnfocused';
-    }
-    // If active and focused, check idle state
-    if (tabState.isIdle) {
-        return 'idle';
-    }
-    return 'activeFocused';
-}
+import { TabState, PageData } from "../common/types";
+import { getCurrentDateString } from "../common/utils";
+import * as storageManager from "./storageManager";
 
 /**
  * Calculates the time difference and updates the corresponding counter in storage.
@@ -26,47 +9,57 @@ export async function calculateAndUpdateTime(
     previousState: TabState,
     timestamp: number
 ): Promise<void> {
+    console.log(`[TimeUpdater DEBUG] calculateAndUpdateTime ENTER - Timestamp: ${timestamp}, Prev State:`, JSON.stringify(previousState));
+
     if (!previousState || !previousState.url || !previousState.hostname || previousState.stateStartTime > timestamp) {
-        // Ignore if state is invalid or start time is in the future (shouldn't happen)
-        console.warn("Invalid previous state or timestamp for time update:", previousState, timestamp);
+        console.warn("[TimeUpdater DEBUG] Invalid previous state or timestamp for time update, returning:", previousState, timestamp);
         return;
     }
 
     const durationMs = timestamp - previousState.stateStartTime;
+    console.log(`[TimeUpdater DEBUG] Calculated Duration: ${durationMs}ms for URL: ${previousState.url}`);
+
     if (durationMs <= 0) {
+        console.log("[TimeUpdater DEBUG] No time elapsed or negative duration, returning.");
         return; // No time elapsed or negative duration
     }
 
-    const activityState = getActivityState(previousState);
-    const dateStr = getCurrentDateString();
-    const dataUpdate: Partial<PageData> = {
-        lastSeen: timestamp
+    // Prepare base update (lastSeen, title)
+    const baseUpdate: Partial<PageData> = {
+        lastSeen: timestamp,
+        title: previousState.title
     };
+    console.log(`[TimeUpdater DEBUG] Base Update:`, JSON.stringify(baseUpdate));
 
-    switch (activityState) {
-        case 'activeFocused':
-            dataUpdate.activeFocusedMs = durationMs;
-            break;
-        case 'activeUnfocused':
-            dataUpdate.activeUnfocusedMs = durationMs;
-            break;
-        case 'idle':
-            dataUpdate.idleMs = durationMs;
-            break;
-        case 'inactive':
-            // No specific time counter for inactive, but update lastSeen
-            break;
-    }
-
-    // Update storage
-    try {
-        await storageManager.updatePageData(
-            dateStr,
-            previousState.hostname,
-            previousState.url,
-            dataUpdate
-        );
-    } catch (error) {
-        console.error("Failed to update time data in storage:", error);
+    // If the previous state was active, add active time
+    if (previousState.isActive) {
+        const dataUpdate: Partial<PageData> = {
+            ...baseUpdate,
+            activeMs: durationMs // Add duration to active time
+        };
+        try {
+            console.log(`[TimeUpdater DEBUG] ACTIVE - Calling updatePageData for ${previousState.hostname}/${previousState.url} with:`, JSON.stringify(dataUpdate));
+            await storageManager.updatePageData(
+                getCurrentDateString(),
+                previousState.hostname,
+                previousState.url,
+                dataUpdate
+            );
+        } catch (error) {
+            console.error("Failed to update active time data in storage:", error);
+        }
+    } else {
+        // If previous state was inactive, still update lastSeen and title
+        try {
+             console.log(`[TimeUpdater DEBUG] INACTIVE - Calling updatePageData for ${previousState.hostname}/${previousState.url} with:`, JSON.stringify(baseUpdate));
+             await storageManager.updatePageData(
+                getCurrentDateString(),
+                previousState.hostname,
+                previousState.url,
+                baseUpdate // Only contains lastSeen and title
+            );
+        } catch (error) {
+            console.error("Failed to update lastSeen/title for inactive state:", error);
+        }
     }
 }

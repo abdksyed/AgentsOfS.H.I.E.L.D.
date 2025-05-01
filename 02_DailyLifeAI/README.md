@@ -27,7 +27,7 @@ The time spent in each state is calculated:
 - **Inactive/Background:** Tab is not the active tab in its window.
 - **Total Open:** The total duration from when a page (URL) was first seen today until it was last seen today.
 
-This provides a more granular view than just tracking total time open, helping understand how much time you spend actively using different websites versus just having them open, **Time Calculation:** is based on state transitions. When a tab's state changes (e.g., from active/focused to idle), the duration of the previous state is calculated and saved.
+This provides a more granular view than just tracking total time open, helping you understand how much time you spend actively using different websites versus just having them open. **Time calculation** is based on state transitions: When a tab's state changes (e.g., from active/focused to idle), the duration of the previous state is calculated and saved.
 
 ## Setup & Build
 
@@ -82,24 +82,24 @@ This extension tries to figure out how much time you spend actively using differ
 
 **Time Categories Explained:**
 
-*   **Active & Focused:** This counts time when:
-    *   A specific tab (like `docs.google.com`) is the **selected tab** in its Chrome window.
-    *   AND that **Chrome window is the main window** you're currently using on your computer (it's "in focus").
-    *   AND you are **actively using your computer** (moving the mouse, typing, etc., so the system isn't "idle").
-    *   *Example:* You are typing notes in a Google Doc in your main Chrome window.
+-   **Active & Focused:** This counts time when:
+  - A specific tab (like `docs.google.com`) is the **selected tab** in its Chrome window.
+  - AND that **Chrome window is the main window** you're currently using on your computer (it's "in focus").
+  - AND you are **actively using your computer** (moving the mouse, typing, etc., so the system isn't "idle").
+  - *Example:* You are typing notes in a Google Doc in your main Chrome window.
 
-*   **Active & Unfocused:** This counts time when:
-    *   A specific tab is the **selected tab** in its Chrome window.
-    *   BUT that Chrome window is **not the main window** you're using (maybe it's visible on another monitor, or you've switched to a different application like Word or Slack).
-    *   *Example:* You have a YouTube video playing in a Chrome window, but you switch to answer an email in Outlook. The time YouTube was the selected tab while Outlook was the main application counts here.
+-   **Active & Unfocused:** This counts time when:
+  - A specific tab is the **selected tab** in its Chrome window.
+  - BUT that Chrome window is **not the main window** you're using (maybe it's visible on another monitor, or you've switched to a different application like Word or Slack).
+  - *Example:* You have a YouTube video playing in a Chrome window, but you switch to answer an email in Outlook. The time YouTube was the selected tab while Outlook was the main application counts here.
 
-*   **Idle Time:** This counts time when:
-    *   A specific tab is the **selected tab**.
-    *   AND the Chrome window **is the main window** you are using.
-    *   BUT you **haven't used your mouse or keyboard** for a while (based on your operating system's idle detection, usually a minute or more). The extension checks this every 15 seconds.
-    *   *Example:* You are reading a long article on a webpage in your main Chrome window, but you stop scrolling or typing for a few minutes to think. That paused time gets counted here.
+-   **Idle Time:** This counts time when:
+  - A specific tab is the **selected tab**.
+  - AND the Chrome window **is the main window** you are using.
+  - BUT you **haven't used your mouse or keyboard** for a while (based on your operating system's idle detection, usually a minute or more). The extension checks this every 15 seconds.
+  - *Example:* You are reading a long article on a webpage in your main Chrome window, but you stop scrolling or typing for a few minutes to think. That paused time gets counted here.
 
-*   **Total Open Time (in Stats Table):** This isn't a directly tracked time bucket like the others. Instead, it shows the *total duration between the first time and the last time the extension recorded any activity* for that specific webpage URL within the selected date range. It helps show the overall time span the page was present in your tracked data, but doesn't necessarily mean the tab was physically open the entire time.
+-   **Total Open Time (in Stats Table):** This isn't a directly tracked time bucket like the others. Instead, it shows the *total duration between the first time and the last time the extension recorded any activity* for that specific webpage URL within the selected date range. It helps show the overall time span the page was present in your tracked data, but doesn't necessarily mean the tab was physically open the entire time.
 
 **Why do the `.ts` files import `.js` files?**
 

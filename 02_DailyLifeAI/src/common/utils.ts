@@ -2,10 +2,30 @@
  * Extracts the hostname from a given URL string.
  * Returns 'invalid_url' for invalid inputs or non-HTTP/HTTPS schemes.
  */
-export function getHostname(url: string | undefined | null): string {
+export function getHostname(url: string | undefined): string {
   if (!url) {
     return 'no_url';
   }
+
+  // Handle special Chrome URLs
+  if (url.startsWith('chrome://')) {
+    // Extract the part after chrome:// (e.g., 'newtab', 'extensions')
+    try {
+      // const specificPage = new URL(url).hostname; // Removed unused variable
+      // Return a prefix to categorize, but keep specific page for potential future use
+      // For now, just categorize broadly to ignore
+      return 'chrome_internal'; // Simplified: Treat all chrome:// pages the same for ignoring
+    } catch (e) {
+      return 'chrome_internal'; // Fallback for invalid chrome:// URLs
+    }
+  }
+  if (url.startsWith('chrome-extension://')) {
+    return 'chrome_extension'; // Ignore extension pages themselves
+  }
+  if (url.startsWith('about:')) {
+    return 'about_page'; // Ignore about pages
+  }
+
   try {
     const parsedUrl = new URL(url);
     // Allow chrome-extension:// URLs as well
@@ -34,11 +54,18 @@ export function getHostname(url: string | undefined | null): string {
 
 /**
  * Formats milliseconds into a human-readable string HH:MM:SS.
+ * Shows "< 1s" for durations between 0ms and 1000ms (exclusive).
  */
 export function formatTime(milliseconds: number): string {
-  if (isNaN(milliseconds) || milliseconds < 0) {
+  if (isNaN(milliseconds) || milliseconds <= 0) { // Also return 00:00:00 for exactly 0
     return '00:00:00';
   }
+
+  // Handle very short durations
+  if (milliseconds < 1000) {
+      return '< 1s';
+  }
+
   const totalSeconds = Math.floor(milliseconds / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);

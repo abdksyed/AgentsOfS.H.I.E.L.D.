@@ -1,34 +1,105 @@
-import { TrackedData, DailyData, PageData, HostnameData } from "../common/types.js";
+import { TrackedData, DailyData, PageData } from "../common/types";
 
 const STORAGE_KEY = "dailyLifeAIData";
 
-// --- Concurrency Control for saving --- //
-let isSaving = false;
-const saveQueue: (() => Promise<void>)[] = [];
+// --- Debounced Saving Refactor ---
+let saveDataTimeoutId: number | null = null; // Use 'number' for browser setTimeout ID
+const SAVE_DEBOUNCE_MS = 2000; // 2 seconds
 
-async function processSaveQueue(): Promise<void> {
-    if (isSaving || saveQueue.length === 0) {
+// Structure to hold aggregated updates between saves
+// date -> hostname -> url -> { deltaMs, lastSeen, title, isNewEntry }
+let pendingUpdates: Map<string, Map<string, Map<string, { deltaMs: number; lastSeen: number; title: string; firstSeen: number | null }>>> = new Map();
+
+async function executeSave(): Promise<void> {
+    if (saveDataTimeoutId) {
+        clearTimeout(saveDataTimeoutId);
+        saveDataTimeoutId = null;
+    }
+
+    const updatesToProcess = pendingUpdates;
+    pendingUpdates = new Map(); // Clear pending updates immediately for next cycle
+
+    if (updatesToProcess.size === 0) {
+        console.log("[StorageManager DEBUG] executeSave - No pending updates to process.");
         return;
     }
-    isSaving = true;
-    const saveDataOperation = saveQueue.shift();
 
-    if (saveDataOperation) {
-        try {
-            await saveDataOperation();
-        } catch (error) {
-            console.error("Error during queued save operation:", error);
-        } finally {
-            isSaving = false;
-            // Process next item immediately if queue not empty
-            processSaveQueue();
+    console.log("[StorageManager DEBUG] executeSave - Processing pending updates:", updatesToProcess);
+
+    try {
+        // 1. Read current data from storage ONCE
+        const allData = await getAllData(); // Reads from chrome.storage.local
+        const timestampNow = Date.now();
+
+        // 2. Iterate through pending updates and merge into allData
+        for (const [date, hostMap] of updatesToProcess.entries()) {
+            if (!allData[date]) allData[date] = {};
+            const dayData = allData[date];
+
+            for (const [hostname, urlMap] of hostMap.entries()) {
+                if (!dayData[hostname]) dayData[hostname] = {};
+                const hostData = dayData[hostname];
+
+                for (const [url, updateInfo] of urlMap.entries()) {
+                    const existingPageData = hostData[url]; // Might be undefined
+
+                    const currentActiveMs = existingPageData?.activeMs || 0;
+                    // const currentTitle = existingPageData?.title || url; // Removed - unused
+                    const currentFirstSeen = existingPageData?.firstSeen || updateInfo.firstSeen || timestampNow; // Use existing, then pending, then now
+
+                    // Simplified Title Logic: Always use the latest title from the pending updates for this URL
+                    const finalTitle = updateInfo.title; 
+
+                    const updatedPageData: PageData = {
+                        activeMs: currentActiveMs + updateInfo.deltaMs,
+                        lastSeen: updateInfo.lastSeen, // Use the latest lastSeen from pending
+                        title: finalTitle,
+                        firstSeen: currentFirstSeen, // Preserve the earliest firstSeen
+                        lastUpdated: timestampNow,
+                    };
+
+                    hostData[url] = updatedPageData;
+                    // console.log(`[StorageManager DEBUG] executeSave - Merged update for ${url}:`, updatedPageData);
+                }
+            }
         }
-    } else {
-        // Should not happen if length > 0, but good practice
-        isSaving = false;
+
+        // 3. Save the modified allData back to storage
+        await chrome.storage.local.set({ [STORAGE_KEY]: allData });
+        console.log("[StorageManager DEBUG] executeSave - Debounced save successful.");
+
+    } catch (error) {
+        console.error("[storageManager] Error during debounced save execution:", error);
+        // Consider re-queueing updatesToProcess or other error handling
     }
 }
-// --- End Concurrency Control --- //
+
+// Schedules the debounced save operation
+function scheduleSave(): void {
+    if (saveDataTimeoutId) {
+        clearTimeout(saveDataTimeoutId);
+    }
+
+    saveDataTimeoutId = setTimeout(executeSave, SAVE_DEBOUNCE_MS);
+}
+// --- End Debounced Saving Refactor ---
+
+/**
+ * Helper function to check if a title is generic.
+ */
+/* // Removed - unused
+function isTitleGeneric(title: string | null | undefined, hostname: string, url: string): boolean {
+    if (!title) return true;
+    const lowerTitle = title.toLowerCase();
+    return title === hostname || 
+           title === url || 
+           lowerTitle === 'chatgpt' || // Basic check
+           lowerTitle.includes('chatgpt') || // Catch variations like "ChatGPT - ..." 
+           lowerTitle === 'linkedin' || 
+           lowerTitle.includes('feed | linkedin') || 
+           lowerTitle.includes('notifications | linkedin');
+}
+*/
 
 /**
  * Retrieves all tracked data from storage.
@@ -44,20 +115,13 @@ async function getAllData(): Promise<TrackedData> {
 }
 
 /**
- * Saves the entire tracked data object back to storage.
- */
-async function saveData(data: TrackedData): Promise<void> {
-    try {
-        await chrome.storage.local.set({ [STORAGE_KEY]: data });
-    } catch (error) {
-        console.error("Error saving data to local storage:", error);
-    }
-}
-
-/**
  * Retrieves tracked data for a specific date.
  */
 export async function getDataForDate(date: string): Promise<DailyData | null> {
+    // Ensure pending saves are flushed before reading for external use
+    if (saveDataTimeoutId) {
+        await executeSave(); // Force save if one is pending
+    }
     const allData = await getAllData();
     return allData[date] || null;
 }
@@ -66,6 +130,10 @@ export async function getDataForDate(date: string): Promise<DailyData | null> {
  * Retrieves tracked data for a given date range (inclusive).
  */
 export async function getDataForRange(startDate: string, endDate: string): Promise<TrackedData> {
+     // Ensure pending saves are flushed before reading for external use
+    if (saveDataTimeoutId) {
+        await executeSave(); // Force save if one is pending
+    }
     const allData = await getAllData();
     const filteredData: TrackedData = {};
     const start = new Date(startDate);
@@ -81,89 +149,66 @@ export async function getDataForRange(startDate: string, endDate: string): Promi
 }
 
 /**
- * Updates the data for a specific page URL on a specific date.
- * Merges the provided partial data with existing data.
- * Uses a queue to handle potential concurrency issues.
+ * Accumulates page data updates and schedules a debounced save.
+ * This function NO LONGER reads or writes directly to storage.
  */
-export function updatePageData(date: string, hostname: string, url: string, dataUpdate: Partial<PageData>): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const task = async () => {
-            if (!hostname || !url || hostname === 'invalid_url' || hostname === 'no_url') {
-                console.warn(`Attempted to update data for invalid host/url: ${hostname}, ${url}`);
-                // Reject the promise for this specific task
-                reject(new Error(`Invalid host/url in updatePageData: ${hostname}, ${url}`));
-                return;
-            }
+export async function updatePageData(date: string, hostname: string, url: string, dataUpdate: Partial<PageData>): Promise<void> {
+    // console.log(`[StorageManager DEBUG] updatePageData ACCUMULATE - Date: ${date}, Host: ${hostname}, URL: ${url}, Update:`, JSON.stringify(dataUpdate));
 
-            try {
-                const allData = await getAllData();
+    // Basic validation
+    if (!hostname || !url || hostname === 'invalid_url' || hostname === 'no_url' || hostname === 'chrome_internal' || hostname === 'chrome_extension' || hostname === 'about_page' || hostname === 'local_file' || hostname === 'other_scheme') {
+        console.warn(`[StorageManager DEBUG] updatePageData - Invalid host/url provided, ignoring. Host: ${hostname}, URL: ${url}`);
+        return;
+    }
 
-                // Ensure day data exists
-                if (!allData[date]) {
-                    allData[date] = {};
-                }
-                const dayData = allData[date];
+    // Ensure maps exist
+    if (!pendingUpdates.has(date)) pendingUpdates.set(date, new Map());
+    const hostMap = pendingUpdates.get(date)!;
+    if (!hostMap.has(hostname)) hostMap.set(hostname, new Map());
+    const urlMap = hostMap.get(hostname)!;
 
-                // Ensure hostname data exists
-                if (!dayData[hostname]) {
-                    dayData[hostname] = {};
-                }
-                const hostData = dayData[hostname];
+    // Get existing pending update or initialize
+    let currentPending = urlMap.get(url);
+    if (!currentPending) {
+        currentPending = { deltaMs: 0, lastSeen: 0, title: dataUpdate.title || url, firstSeen: dataUpdate.firstSeen || null }; // Initialize title, firstSeen might be null initially
+    }
 
-                // Get existing page data or initialize if new
-                const isNewEntry = !hostData[url];
-                const existingPageData = hostData[url] || {
-                    totalOpenMs: 0,
-                    activeFocusedMs: 0,
-                    activeUnfocusedMs: 0,
-                    idleMs: 0,
-                    firstSeen: dataUpdate.firstSeen || Date.now(), // Use provided firstSeen if available (only on creation)
-                    lastSeen: Date.now(),
-                    lastUpdated: Date.now(),
-                    title: dataUpdate.title || url // Initialize title, fallback to url
-                };
+    // Accumulate/update pending data
+    currentPending.deltaMs += dataUpdate.activeMs || 0;
+    currentPending.lastSeen = Math.max(currentPending.lastSeen, dataUpdate.lastSeen || 0);
+    // Update title only if the new update provides one
+    if (dataUpdate.title) {
+        currentPending.title = dataUpdate.title; 
+    }
+     // Keep the earliest firstSeen encountered for this pending cycle
+    if (dataUpdate.firstSeen && (currentPending.firstSeen === null || dataUpdate.firstSeen < currentPending.firstSeen)) {
+         currentPending.firstSeen = dataUpdate.firstSeen;
+    }
 
-                // Merge updates, incrementing time values
-                const updatedPageData: PageData = {
-                    ...existingPageData,
-                    activeFocusedMs: (existingPageData.activeFocusedMs || 0) + (dataUpdate.activeFocusedMs || 0),
-                    activeUnfocusedMs: (existingPageData.activeUnfocusedMs || 0) + (dataUpdate.activeUnfocusedMs || 0),
-                    idleMs: (existingPageData.idleMs || 0) + (dataUpdate.idleMs || 0),
-                    // Update timestamps
-                    lastSeen: dataUpdate.lastSeen !== undefined ? dataUpdate.lastSeen : Date.now(),
-                    lastUpdated: Date.now(),
-                    // Update title only if provided in the update, otherwise keep existing
-                    title: dataUpdate.title !== undefined ? dataUpdate.title : existingPageData.title,
-                    // Ensure firstSeen is only set on genuine new entries
-                    firstSeen: isNewEntry ? (dataUpdate.firstSeen || existingPageData.firstSeen) : existingPageData.firstSeen,
-                    // Ensure totalOpenMs is handled correctly if still present (it might be removed by other edits)
-                    totalOpenMs: existingPageData.totalOpenMs || 0 // Preserve existing if not explicitly updated
-                };
 
-                hostData[url] = updatedPageData;
+    urlMap.set(url, currentPending);
+    // console.log(`[StorageManager DEBUG] updatePageData - Updated pending for ${url}:`, currentPending);
 
-                // Save the modified data
-                await saveData(allData);
-                resolve(); // Resolve the promise for this task
-            } catch (error) {
-                console.error(`Error during updatePageData task for ${url}:`, error);
-                reject(error); // Reject the promise for this task
-            }
-        };
-
-        saveQueue.push(task);
-        processSaveQueue();
-    });
+    // Schedule the save operation (which will process all pending updates)
+    scheduleSave();
 }
 
 /**
- * Clears all tracked data from storage. (Useful for debugging)
+ * Clears all tracked data from storage.
  */
 export async function clearAllData(): Promise<void> {
     try {
+        // Clear pending updates first
+        pendingUpdates = new Map();
+        if (saveDataTimeoutId) {
+            clearTimeout(saveDataTimeoutId);
+            saveDataTimeoutId = null;
+        }
+        // Clear storage
         await chrome.storage.local.remove(STORAGE_KEY);
-        console.log("Cleared all tracking data.");
+        console.log("Cleared all tracking data (pending and storage).");
     } catch (error) {
         console.error("Error clearing data:", error);
     }
 }
+

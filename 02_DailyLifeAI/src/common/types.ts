@@ -1,8 +1,8 @@
 export interface PageData {
-  totalOpenMs: number;
-  activeFocusedMs: number;
-  activeUnfocusedMs: number;
-  idleMs: number;
+  // totalOpenMs: number; // Removed - This should be calculated if needed
+  activeMs: number;
+  // activeUnfocusedMs: number;
+  // idleMs: number;
   firstSeen: number; // timestamp
   lastSeen: number; // timestamp
   lastUpdated: number; // internal timestamp
@@ -25,12 +25,12 @@ export interface TabState {
   url: string;
   hostname: string;
   windowId: number;
-  isActive: boolean; // Is it the selected tab in its window?
-  isFocused: boolean; // Is its window focused by the OS?
-  isIdle: boolean; // Is the system idle (applies only if isActive & isFocused)?
-  stateStartTime: number; // When the current combination of states began
-  firstSeenToday: number; // When this URL was first seen today
-  title: string; // Added page title
+  isActive: boolean;    // Is this the active tab in its window?
+  // isFocused: boolean;   // Is the window containing this tab focused?
+  // isIdle: boolean;      // Is the user currently idle?
+  stateStartTime: number; // Timestamp when this state began
+  firstSeenToday: number; // Timestamp when this URL was first seen today
+  title: string;
 }
 
 export interface ActiveTabs {
@@ -39,25 +39,24 @@ export interface ActiveTabs {
 
 // Interface for aggregated stats display (Page Level)
 export interface DisplayStat {
-    hostname: string; // Keep hostname for context if needed later
-    url: string; // Keep raw URL
-    title: string; // Display this primarily
-    activeFocusedTime: string;
-    activeUnfocusedTime: string;
-    idleTime: string;
-    totalOpenTime: string;
-    firstSeen: string; // Formatted timestamp for the page
-    lastSeen: string; // Formatted timestamp for the page
+    hostname: string;
+    url?: string;                // URL (only for page rows)
+    title: string;               // Hostname or Page Title
+    activeTime: string;          // Formatted active time
+    firstSeenMs: number;         // Raw first seen timestamp (milliseconds)
+    lastSeenMs: number;          // Raw last seen timestamp (milliseconds)
+    firstSeenFormatted: string;  // Formatted first seen timestamp
+    lastSeenFormatted: string;   // Formatted last seen timestamp
 }
 
 // Interface for aggregated stats display (Hostname Level)
 export interface AggregatedHostnameData {
     hostname: string;
-    totalActiveFocusedMs: number;
-    totalActiveUnfocusedMs: number;
-    totalIdleMs: number;
-    // totalOpenMs: number; // Removed: Calculated span (max lastSeen - min firstSeen)
-    firstSeen: number; // Earliest firstSeen across pages
-    lastSeen: number; // Latest lastSeen across pages
-    pages: DisplayStat[]; // Individual page stats under this host
+    totalActiveMs: number;       // Total active time for the hostname
+    // totalActiveFocusedMs: number;
+    // totalActiveUnfocusedMs: number;
+    // totalIdleMs: number;
+    firstSeen: number;           // Earliest firstSeen across all pages for the host
+    lastSeen: number;            // Latest lastSeen across all pages for the host
+    pages: DisplayStat[];        // Array of individual page stats under this hostname
 }

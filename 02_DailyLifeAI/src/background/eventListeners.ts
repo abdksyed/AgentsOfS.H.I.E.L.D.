@@ -1,202 +1,148 @@
-import * as stateManager from "./stateManager.js";
-import * as timeUpdater from "./timeUpdater.js";
-import { getHostname, getCurrentDateString } from "../common/utils.js";
-import { updatePageData } from "./storageManager.js";
-import { TabState } from "../common/types.js";
+import * as stateManager from "./stateManager";
+import * as timeUpdater from "./timeUpdater";
+import { getHostname, getCurrentDateString } from "../common/utils";
+import { updatePageData } from "./storageManager";
+import { TabState } from "../common/types";
 
-// Flag to ensure listeners are only set up once
+// Flag to prevent multiple registrations
 let listenersRegistered = false;
 
-// Function to handle state transitions
-async function handleStateTransition(tabId: number, update: Partial<Omit<TabState, 'stateStartTime' | 'firstSeenToday'>>): Promise<void> {
-    const timestamp = Date.now();
-    console.log(`[handleStateTransition] TabID: ${tabId}, Timestamp: ${timestamp}, Update: ${JSON.stringify(update)}`);
-    const previousState = stateManager.updateTabState(tabId, update, timestamp);
+// Debounce updates to avoid redundant calculations on rapid events
+const DEBOUNCE_DELAY = 100;
+const debounceMap: Map<number, number> = new Map();
+
+// Simplified state update handler
+async function handleStateTransition(tabId: number, timestamp: number, update: Partial<TabState>) {
+    // console.log(`[handleStateTransition] TabID: ${tabId}, Timestamp: ${timestamp}, Update: ${JSON.stringify(update)}`);
+    const previousState = await stateManager.updateTabState(tabId, update, timestamp);
     if (previousState) {
-        console.log(`   Previous State: ${JSON.stringify(previousState)}`);
+        // Calculate time for the state that *ended*
         await timeUpdater.calculateAndUpdateTime(previousState, timestamp);
-    } else {
-        console.warn(`   No previous state found for TabID: ${tabId}`);
     }
 }
 
-export function setupListeners(): void {
+// Debounced version of handleStateTransition
+function debouncedHandleStateTransition(tabId: number, timestamp: number, update: Partial<TabState>) {
+    if (debounceMap.has(tabId)) {
+        clearTimeout(debounceMap.get(tabId)!);
+    }
+    console.log(`[EventListener DEBUG] Debounce - Scheduling handleStateTransition for Tab ${tabId}, Update:`, JSON.stringify(update));
+    // setTimeout returns a number in browser environments
+    const timeoutId: number = setTimeout(() => {
+        console.log(`[EventListener DEBUG] Debounce - EXECUTING handleStateTransition for Tab ${tabId}, Update:`, JSON.stringify(update));
+        handleStateTransition(tabId, timestamp, update);
+        debounceMap.delete(tabId); // Clean up after execution
+    }, DEBOUNCE_DELAY);
+    debounceMap.set(tabId, timeoutId);
+}
+
+/**
+ * Sets up the necessary Chrome event listeners for tracking tab states.
+ */
+export function registerEventListeners() {
     if (listenersRegistered) {
-        console.log("Listeners already registered, skipping setup.");
+        // console.log("Listeners already registered, skipping setup.");
         return;
     }
     console.log("Setting up listeners...");
 
-    // --- Tab Listeners --- //
+    // --- Tab Events --- //
 
-    chrome.tabs.onCreated.addListener((tab) => {
-        console.log(`Tab created: ${tab.id}`);
-        if (tab.id) {
-            // Add with initial state, actual state refined by onUpdated/onActivated
-            stateManager.addOrUpdateTab(tab, Date.now());
-        }
-    });
-
-    chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-        // Track URL changes or title changes when loading completes
-        const shouldUpdate = (changeInfo.status === 'complete' && tab.url)
-        // Only update title if status is complete to avoid intermediate titles
-        const newTitle = (changeInfo.status === 'complete') ? tab.title : undefined;
-
-        if (shouldUpdate) {
-             console.log(`Tab updated (complete): ${tabId}, URL: ${tab.url}, Title: ${newTitle}`);
-            const currentState = stateManager.getTabState(tabId);
-            const urlChanged = !currentState || currentState.url !== tab.url;
-            const titleChanged = newTitle !== undefined && (!currentState || currentState.title !== newTitle);
-
-            // Update if URL changed OR if title changed (and URL is valid)
-            if (urlChanged || titleChanged) {
-                const hostname = getHostname(tab.url); // Get hostname regardless
-                if (hostname !== 'invalid_url' && hostname !== 'no_url') {
-                    const updatePayload: Partial<Omit<TabState, 'stateStartTime' | 'firstSeenToday'>> = {};
-                    if (urlChanged) {
-                        updatePayload.url = tab.url;
-                        updatePayload.hostname = hostname;
-                    }
-                    // Always include title in the update if it changed or if URL changed
-                    if (urlChanged || titleChanged) {
-                       updatePayload.title = newTitle || tab.url; // Fallback to URL if title missing
-                    }
-
-                    await handleStateTransition(tabId, updatePayload);
-
-                    // Update firstSeen and title in storage if URL genuinely changed to a new valid one
-                    if (urlChanged) {
-                        await updatePageData(getCurrentDateString(), hostname, tab.url!, { // Use non-null assertion as we checked tab.url
-                            firstSeen: Date.now(),
-                            title: updatePayload.title // Use the title we determined for the state
-                        });
-                    } else if (titleChanged) {
-                         // If only the title changed, update it in storage too
-                         await updatePageData(getCurrentDateString(), hostname, tab.url!, {
-                            title: updatePayload.title
-                        });
-                    }
-                } else if (urlChanged) {
-                    // If URL changed TO an invalid one, handle removal via stateManager
-                    const timestamp = Date.now();
-                    const newHostname = getHostname(tab.url); // Get the (invalid) hostname
-                    const newTitle = tab.url || ''; // Use URL as title for invalid URLs
-                    console.log(`[eventListeners] URL changed to invalid: ${tab.url}. Updating state before removal.`);
-                    // Update state with invalid URL info before calculating final time
-                    const previousState = stateManager.updateTabState(tabId, { url: tab.url, hostname: newHostname, title: newTitle }, timestamp);
-                     if (previousState) {
-                        await timeUpdater.calculateAndUpdateTime(previousState, timestamp);
-                    } else {
-                         // If updateTabState returned null (e.g., tab was already removed), no need to calculate time
-                         console.warn(`[eventListeners] No previous state found for tab ${tabId} after URL changed to invalid. Time calculation skipped.`);
-                    }
-                }
-            }
-        }
-    });
-
-    chrome.tabs.onActivated.addListener(async (activeInfo) => {
-        console.log(`Tab activated: ${activeInfo.tabId} in window ${activeInfo.windowId}`);
-        const currentTimestamp = Date.now();
-
-        // Find previously active tab in the same window (if any)
-        const previousActiveTabId = stateManager.findActiveTabInWindow(activeInfo.windowId);
-        if (previousActiveTabId && previousActiveTabId !== activeInfo.tabId) {
-             console.log(`   Deactivating previous tab: ${previousActiveTabId}`);
-            await handleStateTransition(previousActiveTabId, { isActive: false });
-        }
-
-        // Activate the new tab
-        const newActiveTabState = stateManager.getTabState(activeInfo.tabId);
-        if (newActiveTabState) {
-             console.log(`   Activating new tab: ${activeInfo.tabId}`);
-            await handleStateTransition(activeInfo.tabId, { isActive: true });
-        } else {
-            // Tab might not be tracked yet (e.g., if created and activated quickly)
-            // Try fetching tab info and adding/updating it
-             try {
-                const tab = await chrome.tabs.get(activeInfo.tabId);
-                stateManager.addOrUpdateTab(tab, currentTimestamp);
-                 await handleStateTransition(activeInfo.tabId, { isActive: true }); // Now activate it
-            } catch (error) {
-                console.error(`Error getting tab info for activation: ${activeInfo.tabId}`, error);
-            }
-        }
-    });
-
-    chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
-        console.log(`Tab removed: ${tabId}`);
-        const timestamp = Date.now();
-        const finalState = stateManager.removeTab(tabId);
-        if (finalState) {
-            // Log the final time segment for the removed tab
-            await timeUpdater.calculateAndUpdateTime(finalState, timestamp);
-             // Update final lastSeen time
-            await updatePageData(getCurrentDateString(), finalState.hostname, finalState.url, { lastSeen: timestamp });
-        }
-    });
-
-    // --- Window Listener --- //
-
-    chrome.windows.onFocusChanged.addListener(async (windowId) => {
-        const focusGained = windowId !== chrome.windows.WINDOW_ID_NONE;
-        console.log(`Window focus changed: ${focusGained ? `Gained by Window ${windowId}` : 'Lost by Chrome (WINDOW_ID_NONE)'}`);
-        const currentTimestamp = Date.now();
-        const allTabs = stateManager.getAllTabs(); // Returns Map<number, TabState>
-
-        // Iterate over Map entries
-        for (const [tabId, tabState] of allTabs.entries()) {
-            // Skip if tabState is somehow undefined (shouldn't happen with Map)
-            if (!tabState) continue;
-
-            const isNowFocused = tabState.windowId === windowId;
-
-            if (tabState.isFocused !== isNowFocused) {
-                 console.log(`   Updating focus for Tab ${tabId} (Window ${tabState.windowId}). WasFocused: ${tabState.isFocused}, IsNowFocused: ${isNowFocused}`);
-                await handleStateTransition(tabId, { isFocused: isNowFocused });
-            }
-        }
-    });
-
-    // --- Idle Listener --- //
-
-    chrome.idle.onStateChanged.addListener(async (newState) => {
-        console.log(`Idle state changed: ${newState}`);
-        const isNowIdle = newState !== 'active'; // 'idle' or 'locked' means user is idle
-        const currentTimestamp = Date.now();
-        const allTabs = stateManager.getAllTabs(); // Returns Map<number, TabState>
-
-        // Iterate over Map entries
-        for (const [tabId, tabState] of allTabs.entries()) {
-             // Skip if tabState is somehow undefined (shouldn't happen with Map)
-            if (!tabState) continue;
-
-            // Idle state only affects tabs that are currently active and focused
-            if (tabState.isActive && tabState.isFocused && tabState.isIdle !== isNowIdle) {
-                console.log(`   Updating idle for active/focused tab ${tabId}: ${isNowIdle}`);
-                await handleStateTransition(tabId, { isIdle: isNowIdle });
-            }
-        }
-    });
-
-    // --- Alarm Listener (Optional - for periodic saves/cleanup) --- //
-    // Example: Save state periodically in case of crash (though main saving is on change)
-    // chrome.alarms.onAlarm.addListener((alarm) => {
-    //     if (alarm.name === 'periodicSave') {
-    //         console.log('Periodic save alarm triggered.');
-             // Potentially update lastSeen for all active tabs?
-             // const now = Date.now();
-             // const currentTabs = stateManager.getAllTabs();
-             // for (const tabIdStr in currentTabs) {
-             //     // ... update lastSeen in storage ...
-             // }
-    //     }
+    // Fired when a tab is created
+    // chrome.tabs.onCreated.addListener((tab) => {
+        // console.log(`Tab created: ${tab.id}`);
+        // Let onUpdated handle the initial valid URL state
     // });
 
+    // Fired when a tab is updated
+    chrome.tabs.onUpdated.addListener(async (tabId, changeInfo /* REMOVED unused tab */) => {
+        // We are primarily interested in updates when the tab loading is complete
+        // or when the title changes significantly.
+        if (changeInfo.status === 'complete' || changeInfo.title) {
+            const timestamp = Date.now();
+            try {
+                // *** Always fetch the latest tab state directly from Chrome ***
+                const currentTab = await chrome.tabs.get(tabId);
+                const hostname = getHostname(currentTab.url);
+                const isValid = !['invalid_url', 'no_url', 'chrome_internal', 'chrome_extension', 'about_page'].includes(hostname);
+
+                console.log(`[EventListener DEBUG] onUpdated - Tab: ${tabId}, Status: ${changeInfo.status}, Title Change: ${changeInfo.title}, Fetched URL: ${currentTab.url}, Fetched Title: ${currentTab.title}, IsValid: ${isValid}`);
+
+                if (isValid) {
+                    // Prepare the update payload using the fresh tab data
+                    const update: Partial<TabState> = {
+                        url: currentTab.url,        // Always use fresh URL
+                        hostname: hostname,         // Always use fresh hostname
+                        title: currentTab.title || currentTab.url, // Always use fresh title
+                        isActive: currentTab.active // Always use fresh active state
+                        // windowId is implicitly handled by stateManager if needed
+                    };
+                    console.log(`[EventListener DEBUG] onUpdated - Calling debouncedHandleStateTransition for Tab ${tabId} with update:`, JSON.stringify(update));
+                    // Call the debounced handler with the complete, fresh state update
+                    debouncedHandleStateTransition(tabId, timestamp, update);
+                } else {
+                    // If the *current* URL (fetched directly) is invalid, trigger removal
+                    console.warn(`[EventListener DEBUG] onUpdated - Tab ${tabId} updated to invalid URL: ${currentTab.url}. Triggering state update/removal.`);
+                    // Send an update containing the invalid URL to stateManager
+                    const update = { url: currentTab.url };
+                    console.log(`[EventListener DEBUG] onUpdated - Calling debouncedHandleStateTransition for Tab ${tabId} with invalid URL update:`, JSON.stringify(update));
+                    debouncedHandleStateTransition(tabId, timestamp, update); 
+                }
+            } catch (error) {
+                // This might happen if the tab is closed between the event firing and chrome.tabs.get completing
+                console.warn(`Error fetching tab ${tabId} in onUpdated:`, error);
+                // Attempt to finalize state if it existed
+                const finalState = stateManager.removeTab(tabId);
+                if (finalState) {
+                    timeUpdater.calculateAndUpdateTime(finalState, timestamp);
+                }
+                if (debounceMap.has(tabId)) {
+                    clearTimeout(debounceMap.get(tabId)!);
+                    debounceMap.delete(tabId);
+                }
+            }
+        } 
+    });
+
+    // Fired when the active tab in a window changes
+    chrome.tabs.onActivated.addListener((activeInfo) => {
+        // console.log(`Tab activated: ${activeInfo.tabId} in window ${activeInfo.windowId}`);
+        const timestamp = Date.now();
+
+        // Deactivate the previous active tab in this window (if any)
+        stateManager.getAllTabs().forEach((tabState, tabId) => {
+            if (tabState.windowId === activeInfo.windowId && tabState.isActive && tabId !== activeInfo.tabId) {
+                // console.log(`    Deactivating previous tab: ${tabId}`);
+                debouncedHandleStateTransition(tabId, timestamp, { isActive: false });
+            }
+        });
+
+        // Activate the new tab
+        // console.log(`    Activating new tab: ${activeInfo.tabId}`);
+        debouncedHandleStateTransition(activeInfo.tabId, timestamp, { isActive: true });
+    });
+
+    // Fired when a tab is closed
+    chrome.tabs.onRemoved.addListener((tabId) => {
+        // console.log(`Tab removed: ${tabId}`);
+        const finalState = stateManager.removeTab(tabId);
+        if (finalState) {
+            timeUpdater.calculateAndUpdateTime(finalState, Date.now());
+        }
+        if (debounceMap.has(tabId)) {
+            clearTimeout(debounceMap.get(tabId)!);
+            debounceMap.delete(tabId);
+        }
+    });
+
+    // --- Window Events (REMOVED) --- //
+    // --- Idle Detection (REMOVED) --- //
+
+    listenersRegistered = true;
     console.log("Listeners setup complete.");
-    listenersRegistered = true; // Mark as registered
 }
+
+// --- Runtime Listeners (outside setupListeners) --- //
 
 // Optional: Add a listener for when the extension is shutting down (e.g., update/disable)
 // This helps ensure final data points are saved.
@@ -230,6 +176,9 @@ chrome.runtime.onSuspend.addListener(() => {
     });
 
     // Although onSuspend doesn't guarantee completion of async ops, we try.
+    // NOTE: There's a risk of data loss here if the service worker is terminated
+    // before the async operations complete (within ~5 seconds limit).
+    // A more robust solution might involve periodic saving via chrome.alarms.
     Promise.allSettled(updatePromises).then(() => {
         console.log("[onSuspend] Finished attempting final state saves.");
     });

@@ -3,21 +3,31 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "clean": "rm -rf dist",
-    "build:ts": "tsc",
-    "copy-src": "copyfiles -u 1 src/**/*.html src/**/*.css src/manifest.json dist/",
-    "copy-icons": "copyfiles \"icons/**/*\" dist/",
-    "build": "npm run clean && npm run build:ts && npm run copy-src && npm run copy-icons",
-    "watch:ts": "tsc --watch"
+    "lint": "eslint src/**/*.ts --fix",
+    "check": "tsc --noEmit",
+    "build": "npm run clean && npm run check && npm run lint && webpack --mode=production",
+    "build-dev": "npm run clean && webpack --mode=development --watch",
+    "clean": "rimraf dist",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@eslint/js": "^9.25.1",
     "@types/chrome": "^0.0.317",
+    "@typescript-eslint/eslint-plugin": "^7.7.0",
+    "@typescript-eslint/parser": "^7.7.0",
+    "copy-webpack-plugin": "^13.0.0",
     "copyfiles": "^2.4.1",
-    "typescript": "^5.8.3"
+    "eslint": "^8.57.1",
+    "globals": "^16.0.0",
+    "rimraf": "^5.0.5",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.31.1",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
   }
 }

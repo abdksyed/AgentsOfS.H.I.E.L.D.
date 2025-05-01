@@ -32,6 +32,8 @@
         <button id="exportCsv">Export as CSV</button>
     </div>
 
+    <div id="loadingIndicator" style="display: none; margin: 15px; text-align: center;">Loading...</div>
+
     <div class="summary">
         <p>Total Tracked Time: <span id="totalTimeSummary">--:--:--</span></p>
         <!-- Add more summary stats if needed -->
@@ -40,14 +42,11 @@
     <table id="statsTable">
         <thead>
             <tr>
-                <th style="width: 20px;"></th>
                 <th data-sort-key="hostname">Hostname / Page Title</th>
-                <th data-sort-key="activeFocused">Active & Focused</th>
-                <th data-sort-key="activeUnfocused">Active & Unfocused</th>
-                <th data-sort-key="idle">Idle Time</th>
-                <th data-sort-key="totalOpen">Total Open Time</th>
-                 <th data-sort-key="firstSeen">First Seen</th>
-                 <th data-sort-key="lastSeen">Last Seen</th>
+                <th data-sort-key="activeTime">Active Time</th>
+                <th data-sort-key="firstSeen">First Seen</th>
+                <th data-sort-key="lastSeen">Last Seen</th>
+                <th data-sort-key="pageLifeTime">Life Time</th>
             </tr>
         </thead>
         <tbody id="statsTableBody">
@@ -56,6 +55,6 @@
         </tbody>
     </table>
 
-    <script src="stats.js" type="module"></script> <!-- Load as module -->
+    <script src="stats.bundle.js"></script> <!-- Updated script name, removed type="module" -->
 </body>
 </html>

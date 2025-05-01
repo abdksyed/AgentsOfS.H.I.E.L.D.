@@ -3,9 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (statsButton) {
         statsButton.addEventListener('click', () => {
-            // Construct the URL relative to the extension's base
-            const statsPageUrl = chrome.runtime.getURL('stats/stats.html');
-            chrome.tabs.create({ url: statsPageUrl });
+            // Use chrome.runtime.openOptionsPage() which opens the page
+            // defined in manifest.json's "options_page" field.
+            chrome.runtime.openOptionsPage();
         });
     } else {
         console.error("Could not find the stats button in popup.html");

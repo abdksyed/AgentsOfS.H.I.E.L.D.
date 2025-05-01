@@ -1,83 +1,88 @@
-import { AggregatedHostnameData, DisplayStat } from "../common/types.js";
-import { generateCsv } from "../common/utils.js";
-// Import formatTime if you uncomment the empty hostnames section below
-// import { formatTime } from "../common/utils.js";
+import { AggregatedHostnameData } from "../common/types";
+import { formatTime } from "../common/utils";
+// import { generateCsv } from './csvUtils'; // Removed unused import
 
 /**
- * Flattens the aggregated data into a list of page stats for CSV export.
+ * Converts the aggregated stats data into a CSV formatted string.
  */
-function flattenDataForCsv(aggregatedData: AggregatedHostnameData[]): Array<{ [key: string]: string }> {
-    const flatData: Array<{ [key: string]: string }> = [];
-    aggregatedData.forEach(hostData => {
-        if (hostData.pages.length === 0) {
-            // Optionally include hostnames even if they have no pages recorded in the timeframe
-            // flatData.push({
-            //     "Hostname": hostData.hostname,
-            //     "Page Title": "(No pages in range)",
-            //     "Page URL": "",
-            //     "Active & Focused": formatTime(hostData.totalActiveFocusedMs), // Use formatted host totals?
-            //     "Active & Unfocused": formatTime(hostData.totalActiveUnfocusedMs),
-            //     "Idle Time": formatTime(hostData.totalIdleMs),
-            //     "Total Open Time (Host Span)": formatTime(hostData.totalOpenMs),
-            //     "First Seen (Page)": "",
-            //     "Last Seen (Page)": ""
-            // });
-        } else {
-            hostData.pages.forEach(pageStat => {
-                flatData.push({
-                    "Hostname": pageStat.hostname, // Or hostData.hostname
-                    "Page Title": pageStat.title,
-                    "Page URL": pageStat.url,
-                    "Active & Focused": pageStat.activeFocusedTime,
-                    "Active & Unfocused": pageStat.activeUnfocusedTime,
-                    "Idle Time": pageStat.idleTime,
-                    "Total Open Time (Page Span)": pageStat.totalOpenTime,
-                    "First Seen (Page)": pageStat.firstSeen,
-                    "Last Seen (Page)": pageStat.lastSeen
-                });
-            });
-        }
+function convertToCsv(data: AggregatedHostnameData[]): string {
+    // const now = Date.now(); // Removed unused variable
+
+    // Define headers - Updated for new order and names
+    const headers = [
+        'Hostname',
+        'Page Title',
+        'URL',
+        'Active Time',
+        'First Seen',
+        'Last Seen',
+        'Life Time' // New column name
+    ];
+
+    // Flatten the data: one row per page
+    const rows = data.flatMap(hostData => {
+        // Iterate over the pages array which contains DisplayStat objects
+        return hostData.pages.map(page => {
+            // Calculate Page Life Time for CSV (always lastSeen - firstSeen)
+            let pageLifeTimeMs = 0;
+            if (page.lastSeenMs && page.firstSeenMs) {
+                 pageLifeTimeMs = page.lastSeenMs - page.firstSeenMs;
+            }
+            const formattedPageLifeTime = formatTime(pageLifeTimeMs > 0 ? pageLifeTimeMs : 0);
+
+            const activeTimeStr = page.activeTime;
+
+            return [
+                hostData.hostname,
+                page.title,
+                page.url || '',
+                activeTimeStr, // Active Time (formatted string)
+                page.firstSeenFormatted, // First Seen (formatted string)
+                page.lastSeenFormatted,  // Last Seen (formatted string)
+                formattedPageLifeTime   // Life Time (formatted string)
+            ];
+        });
     });
-    return flatData;
+
+    // Escape and join data into CSV format
+    const escapeCell = (cellData: string | number): string => {
+        const cellStr = String(cellData);
+        if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+            return `"${cellStr.replace(/"/g, '""')}"`;
+        }
+        return cellStr;
+    };
+
+    const headerRow = headers.map(escapeCell).join(',');
+    const dataRows = rows.map(row => 
+        row.map(escapeCell).join(',')
+    );
+
+    return [headerRow, ...dataRows].join('\n');
 }
 
 /**
- * Triggers a CSV download for the given aggregated statistics data.
+ * Triggers the download of the CSV file.
  */
-export function exportStatsToCsv(aggregatedData: AggregatedHostnameData[], filename: string = 'dailylifeai_stats.csv'): void {
-    if (!aggregatedData || aggregatedData.length === 0) {
-        alert("No data available to export.");
+export function exportStatsToCsv(data: AggregatedHostnameData[], filename: string): void {
+    if (!data || data.length === 0) {
+        console.warn("No data provided for CSV export.");
         return;
     }
 
-    // Flatten the data structure into one row per page
-    const flatData = flattenDataForCsv(aggregatedData);
-
-    if (flatData.length === 0) {
-        alert("No page data found within the selected hostnames to export.");
-        return;
+    const csvContent = convertToCsv(data);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) { // Feature detection
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    } else {
+        alert('CSV export is not supported in this browser.');
     }
-
-    // Use the utility function to generate the CSV string
-    const csvData = generateCsv(flatData);
-
-    if (!csvData) {
-        alert("Failed to generate CSV data.");
-        return;
-    }
-
-    // Create a Blob and trigger download
-    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    // Release the object URL
-    URL.revokeObjectURL(url);
 }
