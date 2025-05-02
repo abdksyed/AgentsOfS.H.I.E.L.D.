@@ -1,0 +1,22 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Create a Detail Checklist of Issues and Plan to resolve them
+
+For the repo `AgentsOfS.H.I.E.L.D.` owned by `abdksyed` get the review comments for the PR given by user.
+
+1. **Step 1:** Fetch the review comments from PR #X
+    Use `gh api` commands to get the PR review comments and save the recent comment in `review/code_review.json` file    
+    Example: `gh api repos/apple-boy/AgentsOfP.O.T/pulls/8/comments --paginate > review/code_review.json` for PR number 8
+
+2. **Step 2:** Extract path, line, and comment body into a readable format
+    Use `jq` command to convert the JSON file to text file by extracting review comments and ignoring outdated/resolved comments.
+    Example: `jq -r ".[] | select(.line != null) | \"File: \(.path)\nStart Line: \(.start_line // \"N/A\")\nEnd Line: \(.line)\nComment: \(.body)\n---\"" review/code_review.json > review/code_review.txt`
+
+3. **Step 3:** Read the file [code_review.txt](mdc:AgentsOfS.H.I.E.L.D./AgentsOfS.H.I.E.L.D./review/code_review.txt) completely L1:LEND and carefullly review each issue, extract the main heading for each issue and the related code block where the issue is marked. There will be suggested code, committable suggestion etc. Review those solutions provided. Think and create multiple solutions to the issues listed along with Pros and Cons for each solution.
+
+4. **Step 4:** Create the checklist of the issues in [plan.md](mdc:AgentsOfS.H.I.E.L.D./review/plan.md) file, and then create detailed plan on how to resolve the issues mentioning the above solutions along with their pros and cons.
+
+DO NOT STOP UNTIL YOU HAVE CREATED the [plan.md](mdc:AgentsOfS.H.I.E.L.D./review/plan.md) file and have created the detailed plan.
