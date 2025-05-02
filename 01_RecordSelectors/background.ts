@@ -26,16 +26,37 @@ let geminiKeyLoaded: Promise<void>;
 // Variable to store the loaded API key
 let GEMINI_API_KEY: string | null = null;
 
+// Helper function to get the API key from the most appropriate storage
+async function getGeminiApiKey(): Promise<string | null> {
+    // First try session storage (more secure, where we save it)
+    const sessionResult = await chrome.storage.session.get('geminiApiKey');
+    if (sessionResult.geminiApiKey) {
+        return sessionResult.geminiApiKey;
+    }
+    
+    // Fall back to local storage (legacy support)
+    const localResult = await chrome.storage.local.get('geminiApiKey');
+    if (localResult.geminiApiKey) {
+        // Optionally migrate to session storage (fire and forget)
+        chrome.storage.session.set({ geminiApiKey: localResult.geminiApiKey }).then(() => {
+            console.log("Migrated API key from local to session storage");
+        }).catch(error => {
+            console.error("Error migrating API key:", error);
+        });
+        return localResult.geminiApiKey;
+    }
+    
+    return null;
+}
+
 // Use an IIFE to handle top-level await for storage access
 geminiKeyLoaded = (async () => {
     try {
-        const result = await chrome.storage.session.get('geminiApiKey');
-        if (result.geminiApiKey) {
-            GEMINI_API_KEY = result.geminiApiKey;
+        GEMINI_API_KEY = await getGeminiApiKey();
+        if (GEMINI_API_KEY) {
             console.log("Gemini API Key loaded from session storage.");
         } else {
             console.warn("Gemini API Key not found in chrome.storage.session. Please set it via popup or manually.");
-            // Consider providing a way for the user to set this key
         }
     } catch (error) {
         console.error("Error loading Gemini API Key from session storage:", error);
@@ -241,25 +262,36 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
         })
         .catch(async (err: any) => { // Make catch async to await stopScreenRecording
             console.error("[Background] Error starting one or both recordings:", err);
-            // Attempt to stop anything that might have started if either failed.
-            // Call stop functions, which should be idempotent (safe to call multiple times)
-            // Stop screen recording first as it's async
-            await stopScreenRecording(); 
-            stopClickRecordingInternal(); // Stop click recording
-
-            // Ensure state is consistent after attempted cleanup
-            // The stop functions should handle most state cleanup, but explicitly set flags just in case
-            isRecording = false;
-            isScreenRecording = false;
-            screenRecordingTabId = null; // Clear the target tab ID
-            // No need to clear recorded data or video blob here, as they weren't
-            // successfully started or were cleaned by individual stop calls.
+            // Use a more structured approach with Promise.all for cleanup
+            const cleanupPromises = [];
             
-            // Save the clean state after attempted stop/cleanup
-            await saveState(); 
-            updatePopupUI(); // Update UI to reflect the stopped/error state
+            // Stop screen recording if it started
+            if (isScreenRecording) {
+                cleanupPromises.push(stopScreenRecording());
+            }
+            
+            // Stop click recording if it started
+            if (isRecording) {
+                stopClickRecordingInternal();
+                // Note: stopClickRecordingInternal is sync, but saveState() is async
+                // We should ensure state is saved after cleanup if necessary, but for simplicity
+                // and relying on subsequent updates, we won't explicitly add saveState here now
+                // unless it's deemed critical for immediate state consistency after *failed* start.
+                // Let's add saveState for robustness after any recording stops.
+                cleanupPromises.push(saveState()); // Ensure state is saved after stopping
+            }
+            
+            // Wait for all cleanup to complete
+            await Promise.all(cleanupPromises);
+            
+            // Ensure state flags are consistent after attempted cleanup
+            isRecording = false; // Click recording should be off
+            isScreenRecording = false; // Screen recording should be off
+            screenRecordingTabId = null; // Clear target tab ID
+            // Also potentially clear AI state if a start failure should reset it?
+            // Let's keep AI state as is unless it's directly related.
 
-            sendResponse({ success: false, error: err.message });
+            sendResponse({ success: false, error: err.message || 'Failed to start recordings' });
         });
     }
     // --- Stop Both Action ---
@@ -989,7 +1021,7 @@ async function callGeminiApi(videoBlob: Blob | null, transcriptData: Array<any>,
                  finalResult = 'Error: Failed to extract steps from AI analysis response.';
                  sendMessageToPopup({ action: 'showAiMagicResults', results: finalResult }); // Send error to popup
             }
-        } else if (responseData.promptFeedback && responseData.promptFeedback.blockReason) {
+        } else if (responseData.promptFeedback?.blockReason) {
              console.warn(`Prompt blocked by Gemini API. Reason: ${responseData.promptFeedback.blockReason}`);
              // Send error back to the correct popup handler
              finalResult = `Error: AI analysis blocked due to prompt content (Reason: ${responseData.promptFeedback.blockReason}).`;

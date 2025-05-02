@@ -429,6 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- AI Magic Listeners ---
+    let aiGenerationTimeout: number | undefined; // Declare timeout variable accessible by both listeners
     if (aiGenerateBtn) {
         aiGenerateBtn.addEventListener('click', () => {
             const userPrompt = aiPromptInput?.value || ""; // Get prompt, default to empty string if null
@@ -463,6 +464,17 @@ document.addEventListener('DOMContentLoaded', () => {
                      console.log("AI generation request sent successfully.");
                      // Keep button disabled, results will arrive via 'showAiMagicResults' message
                 }
+
+                // Add a timeout to handle potential hanging requests
+                aiGenerationTimeout = setTimeout(() => {
+                    // Only execute if still in generating state and button is disabled
+                    if (aiGenerateBtn && aiGenerateBtn.disabled) {
+                        console.warn("[Popup] AI generation timeout reached");
+                        if (aiResultsTextarea) aiResultsTextarea.value = "Error: AI generation timed out. Please try again.";
+                        if (aiGenerateBtn) aiGenerateBtn.disabled = false;
+                        displayStatusMessage("AI generation timed out. Please try again.", 'error');
+                    }
+                }, 120000); // 2 minute timeout
             });
         });
     }
@@ -557,6 +569,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (aiResultsTextarea) {
                 aiResultsTextarea.value = message.results || "No results generated.";
             }
+            // Clear the timeout when results are received
+            if (aiGenerationTimeout) { // Check if the timeout was set
+                clearTimeout(aiGenerationTimeout);
+                aiGenerationTimeout = undefined; // Reset the variable after clearing
+            }
             // Re-enable generate button and update copy button state after results arrive (or error)
             if (aiGenerateBtn) aiGenerateBtn.disabled = false; 
             if (aiCopyBtn) aiCopyBtn.disabled = !message.results || (typeof message.results === 'string' && message.results.startsWith("Error:"));
@@ -595,7 +612,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load API key from storage to potentially display it (optional)
     // Or just check if it exists to adjust UI accordingly (e.g., show prompt to enter key)
-    chrome.storage.local.get('geminiApiKey', (result) => {
+    chrome.storage.session.get('geminiApiKey', (result) => {
         if (result.geminiApiKey) {
             // Optionally display part of the key or just indicate it's set
             console.log("API Key is set.");
