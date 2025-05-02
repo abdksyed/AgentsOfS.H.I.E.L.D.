@@ -2,6 +2,15 @@ import { getHostname } from "../common/utils";
 import { TabState } from "../common/types";
 import * as timeUpdater from "./timeUpdater";
 
+// Define a constant for filtered hostnames
+const FILTERED_HOSTNAMES = [
+    'invalid_url',
+    'no_url',
+    'chrome_internal', // Ignore chrome:// pages
+    'chrome_extension',// Ignore extension pages
+    'about_page'       // Ignore about: pages
+];
+
 // Use Map for better performance and type safety with numeric keys
 const activeTabs: Map<number, TabState> = new Map();
 
@@ -19,14 +28,8 @@ export function addOrUpdateTab(tab: chrome.tabs.Tab, timestamp: number): void {
 
     const hostname = getHostname(tab.url);
     // Filter out unsupported URLs early
-    if ([
-        'invalid_url', 
-        'no_url',
-        'chrome_internal', // Ignore chrome:// pages
-        'chrome_extension',// Ignore extension pages
-        'about_page'       // Ignore about: pages
-    ].includes(hostname)) {
-        console.log(`[stateManager] Ignoring unsupported hostname type '${hostname}' for tab ${tabId}: ${tab.url}`);
+    if (FILTERED_HOSTNAMES.includes(hostname)) {
+        console.log(`[stateManager] Ignoring unsupported hostname type '${hostname}' for tab ${tabId}: ${tab.url?.substring(0, 50)}...`);
         // If the tab exists, remove it
         if (activeTabs.has(tabId)) {
             removeTab(tabId); // No time calculation needed here, handled by event source
@@ -39,7 +42,7 @@ export function addOrUpdateTab(tab: chrome.tabs.Tab, timestamp: number): void {
     const newState: TabState = {
         url: tab.url || '',
         hostname: hostname,
-        windowId: tab.windowId,
+        windowId: tab.windowId || -1,
         isActive: tab.active, // Only track active state
         stateStartTime: existingState?.stateStartTime || timestamp,
         firstSeenToday: existingState?.firstSeenToday || timestamp, // Track when URL was first seen today
@@ -52,7 +55,7 @@ export function addOrUpdateTab(tab: chrome.tabs.Tab, timestamp: number): void {
         existingState.title !== newState.title ||
         existingState.isActive !== newState.isActive
     ) {
-        console.log(`[stateManager] Adding/Updating Tab ${tabId} - URL: ${newState.url}, Title: ${newState.title}, Active: ${newState.isActive}`);
+        console.log(`[stateManager] Adding/Updating Tab ${tabId} - URL: ${newState.url?.substring(0, 50)}..., Title: ${newState.title}, Active: ${newState.isActive}`);
         activeTabs.set(tabId, newState);
     } else {
         console.log(`[stateManager] Tab ${tabId} state unchanged, not overwriting.`);
@@ -106,7 +109,7 @@ export async function updateTabState(tabId: number, update: Partial<TabState>, t
     const newHostname = getHostname(newUrl);
 
     // --- Handle invalid URLs first --- 
-    if (['invalid_url', 'no_url', 'chrome_internal', 'chrome_extension', 'about_page'].includes(newHostname)) {
+    if (FILTERED_HOSTNAMES.includes(newHostname)) {
         // If the URL became invalid, calculate time for the PREVIOUS valid state before removing
         removeTab(tabId); // Remove first
         await timeUpdater.calculateAndUpdateTime(previousState, timestamp); // Use the saved previous state
@@ -126,7 +129,7 @@ export async function updateTabState(tabId: number, update: Partial<TabState>, t
         const newState: TabState = {
             url: newUrl,
             hostname: newHostname,
-            windowId: update.windowId !== undefined ? update.windowId : current.windowId,
+            windowId: update.windowId !== undefined ? update.windowId : (current.windowId || -1),
             // Carry over active status from the update if present, otherwise from current state.
             // This ensures that if a background tab navigates, it remains inactive unless explicitly activated.
             isActive: update.isActive !== undefined ? update.isActive : current.isActive, 
@@ -144,8 +147,8 @@ export async function updateTabState(tabId: number, update: Partial<TabState>, t
         // Apply updates to the current state
         const cleanUpdate = { ...update }; // Make a copy to potentially modify
         // Remove url/hostname from update as we know they didn't change
-        delete cleanUpdate.url;
-        delete cleanUpdate.hostname;
+        cleanUpdate.url = undefined;
+        cleanUpdate.hostname = undefined;
 
         const newState: TabState = {
             ...current, // Start with existing state
@@ -194,7 +197,11 @@ export function removeTab(tabId: number): TabState | null {
  * Returns a deep copy of the active tabs map.
  */
 export function getAllTabs(): Map<number, TabState> {
-    return structuredClone(activeTabs);
+    if (typeof structuredClone === 'function') {
+      return structuredClone(activeTabs);
+    }
+    // Fallback for Chrome <98
+    return JSON.parse(JSON.stringify(activeTabs));
 }
 
 /**
@@ -231,10 +238,7 @@ export async function initializeState(): Promise<void> {
                 const tabId = tab.id;
                 const hostname = getHostname(tab.url);
 
-                if ([
-                    'invalid_url', 'no_url', 'chrome_internal',
-                    'chrome_extension', 'about_page'
-                ].includes(hostname)) {
+                if (FILTERED_HOSTNAMES.includes(hostname)) {
                     continue; 
                 }
 
@@ -243,7 +247,7 @@ export async function initializeState(): Promise<void> {
                 const initialState: TabState = {
                     url: tab.url || '',
                     hostname: hostname,
-                    windowId: tab.windowId,
+                    windowId: tab.windowId || -1,
                     isActive: tab.active, 
                     stateStartTime: initializationTimestamp, 
                     firstSeenToday: initializationTimestamp, 
