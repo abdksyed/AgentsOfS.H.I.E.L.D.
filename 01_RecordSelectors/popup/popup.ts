@@ -371,6 +371,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (chrome.runtime.lastError) {
                             console.error("[Popup] Error getting state to re-enable download video button:", chrome.runtime.lastError.message);
                             // Keep button disabled as a fallback if state fails?
+                            if (downloadVideoBtn) {
+                                downloadVideoBtn.disabled = true; // Ensure button stays disabled on error
+                            }
                         } else if (downloadVideoBtn) {
                             // Refactor using optional chaining and nullish coalescing as per review
                             // Adding parentheses to clarify precedence for linter

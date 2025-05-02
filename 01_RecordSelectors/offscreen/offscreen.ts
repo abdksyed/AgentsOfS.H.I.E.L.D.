@@ -208,7 +208,6 @@ async function startRecording(): Promise<void> {
           type: 'recording-stopped' | 'recording-error';
           target: 'background';
           url: string | null;
-          blob?: Blob | null;
           error: string | null;
       }
 
@@ -216,7 +215,6 @@ async function startRecording(): Promise<void> {
           type: (errorMessage || !url) ? 'recording-error' : 'recording-stopped',
           target: 'background',
           url: url,
-          blob: blob,
           error: errorMessage
       };
 

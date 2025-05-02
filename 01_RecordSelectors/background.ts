@@ -17,6 +17,10 @@ let screenRecordingCleanupTimer: number | null = null; // setTimeout returns a n
 /** @type {Blob | null} - The actual Blob data for the latest completed screen recording */
 let recordedVideoBlob: Blob | null = null;
 
+// State for screen recording start timeout
+/** @type {number | null} - Timer ID for the screen recording start timeout */
+let screenRecordingStartTimeout: number | null = null;
+
 // Promise to track API key loading
 let geminiKeyLoaded: Promise<void>;
 // Variable to store the loaded API key
@@ -755,41 +759,51 @@ async function resizeVideoIfNeeded(videoBlob: Blob, maxSizeBytes: number): Promi
     if (!videoBlob || videoBlob.size <= maxSizeBytes) {
         return videoBlob; // No need to resize
     }
+
+    console.warn(`[Background] Video size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds ideal size of ${(maxSizeBytes / (1024 * 1024)).toFixed(1)} MB. Video will NOT be resized for AI processing due to incomplete implementation.`);
     
-    console.log(`Video size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds ideal size. Will use a lower quality version for AI processing.`);
+    // --- Temporary Implementation (as per plan) ---
+    // Return the original blob with a warning
+    return videoBlob;
+    // --- End Temporary Implementation ---
+
+    // TODO: Implement proper video resizing/transcoding here using WebCodecs API or similar
+    // The code below is a placeholder/incomplete attempt and is commented out.
+
+    // console.log(`Video size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds ideal size. Will use a lower quality version for AI processing.`);
     
-    try {
-        // Create a temporary video element to load the blob
-        const videoElement = document.createElement('video');
-        const videoUrl = URL.createObjectURL(videoBlob);
+    // try {
+    //     // Create a temporary video element to load the blob
+    //     const videoElement = document.createElement('video');
+    //     const videoUrl = URL.createObjectURL(videoBlob);
         
-        // Wait for video metadata to load
-        await new Promise<void>((resolve, reject) => {
-            videoElement.onloadedmetadata = () => resolve();
-            videoElement.onerror = () => reject(new Error("Failed to load video metadata"));
-            videoElement.src = videoUrl;
-        });
+    //     // Wait for video metadata to load
+    //     await new Promise<void>((resolve, reject) => {
+    //         videoElement.onloadedmetadata = () => resolve();
+    //         videoElement.onerror = () => reject(new Error("Failed to load video metadata"));
+    //         videoElement.src = videoUrl;
+    //     });
         
-        // Get video dimensions and duration
-        const width = Math.floor(videoElement.videoWidth * 0.5);  // 50% of original width
-        const height = Math.floor(videoElement.videoHeight * 0.5); // 50% of original height
-        const duration = videoElement.duration;
+    //     // Get video dimensions and duration
+    //     const width = Math.floor(videoElement.videoWidth * 0.5);  // 50% of original width
+    //     const height = Math.floor(videoElement.videoHeight * 0.5); // 50% of original height
+    //     const duration = videoElement.duration;
         
-        // Clean up the URL
-        URL.revokeObjectURL(videoUrl);
+    //     // Clean up the URL
+    //     URL.revokeObjectURL(videoUrl);
         
-        // For now, returning the original blob as we don't have a full video transcoding solution
-        // But this function can be expanded with WebCodecs API or other approaches
-        console.log("Video size reduction attempted but not fully implemented. Using original video at reduced quality.");
+    //     // For now, returning the original blob as we don't have a full video transcoding solution
+    //     // But this function can be expanded with WebCodecs API or other approaches
+    //     console.log("Video size reduction attempted but not fully implemented. Using original video at reduced quality.");
         
-        // Return a smaller portion of the original video as a fallback approach
-        const halfSize = Math.floor(videoBlob.size / 2);
-        return videoBlob.slice(0, halfSize, videoBlob.type);
+    //     // Return a smaller portion of the original video as a fallback approach
+    //     const halfSize = Math.floor(videoBlob.size / 2);
+    //     return videoBlob.slice(0, halfSize, videoBlob.type);
         
-    } catch (error) {
-        console.error("Error trying to resize video:", error);
-        return videoBlob; // Return original on error
-    }
+    // } catch (error) {
+    //     console.error("Error trying to resize video:", error);
+    //     return videoBlob; // Return original on error
+    // }
 }
 
 /**
@@ -1208,6 +1222,20 @@ async function startScreenRecording(): Promise<void> {
     console.log("[Background] 'start-recording' message sent to offscreen document.");
     // IMPORTANT: Do NOT set isScreenRecording = true here.
     // State is updated only when 'recording-started' message is received back.
+
+    // Set a timeout to handle the case where 'recording-started' message is not received
+    // Define a reasonable timeout duration (e.g., 15 seconds)
+    const SCREEN_RECORDING_START_TIMEOUT_MS = 15000; // 15 seconds
+    screenRecordingStartTimeout = setTimeout(async () => {
+        console.error("[Background] Timeout waiting for 'recording-started' message. Resetting screen recording state.");
+        isScreenRecording = false;
+        screenRecordingTabId = null;
+        // Optionally clear video resources if timeout occurs? Maybe leave for stopRecording to handle.
+        await saveState();
+        updatePopupUI();
+        // Notify user via popup?
+        sendMessageToPopup({ action: 'showNotification', message: 'Screen recording failed to start (timeout). Please try again.', type: 'error' });
+    }, SCREEN_RECORDING_START_TIMEOUT_MS);
 
     // Clear previous video data optimistically when starting a *new* screen recording.
     // This assumes the user wants a fresh video if they explicitly press "Start Screen Recording".
