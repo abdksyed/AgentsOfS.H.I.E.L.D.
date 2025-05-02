@@ -29,16 +29,16 @@ let GEMINI_API_KEY: string | null = null;
 // Use an IIFE to handle top-level await for storage access
 geminiKeyLoaded = (async () => {
     try {
-        const result = await chrome.storage.local.get('geminiApiKey');
+        const result = await chrome.storage.session.get('geminiApiKey');
         if (result.geminiApiKey) {
             GEMINI_API_KEY = result.geminiApiKey;
-            console.log("Gemini API Key loaded from storage.");
+            console.log("Gemini API Key loaded from session storage.");
         } else {
-            console.warn("Gemini API Key not found in chrome.storage.local. Please set it via options page or manually.");
+            console.warn("Gemini API Key not found in chrome.storage.session. Please set it via popup or manually.");
             // Consider providing a way for the user to set this key
         }
     } catch (error) {
-        console.error("Error loading Gemini API Key from storage:", error);
+        console.error("Error loading Gemini API Key from session storage:", error);
     }
 })();
 
@@ -225,23 +225,42 @@ chrome.runtime.onMessage.addListener((message: any, sender: chrome.runtime.Messa
     // Combined Action
     if (message.action === 'startBothRecordings') {
         needsAsyncResponse = true; // Needs async for both start actions
-        // Start click recording first (synchronous part of setup)
-        startClickRecordingInternal(sender.tab?.id) // Use internal helper
-            .then(() => {
-                // Then start screen recording (which involves async user prompt)
-                return startScreenRecording();
-            })
-            .then(() => {
-                console.log("[Background] Both recordings initiated.");
-                sendResponse({ success: true });
-            })
-            .catch((err: any) => { // Type the error as any
-                console.error("[Background] Error starting both recordings:", err);
-                // Attempt to stop anything that might have started
-                if (isRecording) stopClickRecordingInternal();
-                if (isScreenRecording) stopScreenRecording(); // Call async stop
-                sendResponse({ success: false, error: err.message });
-            });
+        
+        // Use Promise.all to attempt starting both recordings concurrently
+        Promise.all([
+            startClickRecordingInternal(sender.tab?.id), // Start click recording
+            startScreenRecording() // Start screen recording
+        ])
+        .then(() => {
+            console.log("[Background] Both recordings initiated successfully.");
+            // State and UI updates are handled by individual start functions on success
+            // For the combined action, we can explicitly save state and update UI once both are confirmed to start
+            // (Or rely on the individual start functions to eventually trigger updates)
+            // Let's rely on individual start functions and subsequent state updates for now.
+            sendResponse({ success: true });
+        })
+        .catch(async (err: any) => { // Make catch async to await stopScreenRecording
+            console.error("[Background] Error starting one or both recordings:", err);
+            // Attempt to stop anything that might have started if either failed.
+            // Call stop functions, which should be idempotent (safe to call multiple times)
+            // Stop screen recording first as it's async
+            await stopScreenRecording(); 
+            stopClickRecordingInternal(); // Stop click recording
+
+            // Ensure state is consistent after attempted cleanup
+            // The stop functions should handle most state cleanup, but explicitly set flags just in case
+            isRecording = false;
+            isScreenRecording = false;
+            screenRecordingTabId = null; // Clear the target tab ID
+            // No need to clear recorded data or video blob here, as they weren't
+            // successfully started or were cleaned by individual stop calls.
+            
+            // Save the clean state after attempted stop/cleanup
+            await saveState(); 
+            updatePopupUI(); // Update UI to reflect the stopped/error state
+
+            sendResponse({ success: false, error: err.message });
+        });
     }
     // --- Stop Both Action ---
     else if (message.action === 'stopBothRecordings') {
@@ -750,63 +769,6 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Helper function to resize a video blob if it's too large
- * @param {Blob} videoBlob - The original video blob
- * @param {number} maxSizeBytes - Maximum size in bytes
- * @returns {Promise<Blob>} A promise that resolves with a smaller blob or the original if already small enough
- */
-async function resizeVideoIfNeeded(videoBlob: Blob, maxSizeBytes: number): Promise<Blob> {
-    if (!videoBlob || videoBlob.size <= maxSizeBytes) {
-        return videoBlob; // No need to resize
-    }
-
-    console.warn(`[Background] Video size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds ideal size of ${(maxSizeBytes / (1024 * 1024)).toFixed(1)} MB. Video will NOT be resized for AI processing due to incomplete implementation.`);
-    
-    // --- Temporary Implementation (as per plan) ---
-    // Return the original blob with a warning
-    return videoBlob;
-    // --- End Temporary Implementation ---
-
-    // TODO: Implement proper video resizing/transcoding here using WebCodecs API or similar
-    // The code below is a placeholder/incomplete attempt and is commented out.
-
-    // console.log(`Video size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds ideal size. Will use a lower quality version for AI processing.`);
-    
-    // try {
-    //     // Create a temporary video element to load the blob
-    //     const videoElement = document.createElement('video');
-    //     const videoUrl = URL.createObjectURL(videoBlob);
-        
-    //     // Wait for video metadata to load
-    //     await new Promise<void>((resolve, reject) => {
-    //         videoElement.onloadedmetadata = () => resolve();
-    //         videoElement.onerror = () => reject(new Error("Failed to load video metadata"));
-    //         videoElement.src = videoUrl;
-    //     });
-        
-    //     // Get video dimensions and duration
-    //     const width = Math.floor(videoElement.videoWidth * 0.5);  // 50% of original width
-    //     const height = Math.floor(videoElement.videoHeight * 0.5); // 50% of original height
-    //     const duration = videoElement.duration;
-        
-    //     // Clean up the URL
-    //     URL.revokeObjectURL(videoUrl);
-        
-    //     // For now, returning the original blob as we don't have a full video transcoding solution
-    //     // But this function can be expanded with WebCodecs API or other approaches
-    //     console.log("Video size reduction attempted but not fully implemented. Using original video at reduced quality.");
-        
-    //     // Return a smaller portion of the original video as a fallback approach
-    //     const halfSize = Math.floor(videoBlob.size / 2);
-    //     return videoBlob.slice(0, halfSize, videoBlob.type);
-        
-    // } catch (error) {
-    //     console.error("Error trying to resize video:", error);
-    //     return videoBlob; // Return original on error
-    // }
-}
-
-/**
  * Makes a fetch request to the Gemini API with retry logic for server errors
  * @param {string} apiUrl - Full API URL with API key
  * @param {Object} requestBody - Request payload
@@ -861,14 +823,14 @@ async function callGeminiApi(videoBlob: Blob | null, transcriptData: Array<any>,
 
     // Define size limits
     const MAX_BLOB_SIZE_BYTES = 200 * 1024 * 1024; // 200 MB absolute maximum
-    const IDEAL_BLOB_SIZE_BYTES = 100 * 1024 * 1024; // 20 MB ideal maximum for reliability
+    const IDEAL_BLOB_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB ideal maximum for reliability
     
     // Only check size if videoBlob is not null
     if (videoBlob) {
         console.log(`Original video size: ${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB`);
         
         if (videoBlob.size > MAX_BLOB_SIZE_BYTES) {
-            const errorMsg = `Video file size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds the limit of ${MAX_BLOB_SIZE_BYTES / (1024 * 1024)} MB for AI analysis.`;
+            const errorMsg = `Video file size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds the limit of ${MAX_BLOB_SIZE_BYTES / (1024 * 1024)} MB for AI analysis. Video will not be included.`; // Updated message
             console.error(errorMsg);
             sendMessageToPopup({ action: 'showAiMagicResults', results: `Error: ${errorMsg}` });
             sendMessageToPopup({ action: 'showNotification', message: errorMsg, type: 'error' });
@@ -876,16 +838,13 @@ async function callGeminiApi(videoBlob: Blob | null, transcriptData: Array<any>,
             isAiGenerating = false;
             lastAiResults = `Error: ${errorMsg}`;
             await saveState();
-            return null; // Stop processing
+            // Do NOT return null yet, proceed with transcript only if available
+            videoBlob = null; // Set videoBlob to null so it's not sent
         } else if (videoBlob.size > IDEAL_BLOB_SIZE_BYTES) {
-            // If video is larger than ideal but smaller than maximum, try to resize it
-            try {
-                videoBlob = await resizeVideoIfNeeded(videoBlob, IDEAL_BLOB_SIZE_BYTES);
-                console.log(`Video processed for AI. New size: ${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB`);
-            } catch (error) {
-                console.warn("Could not optimize video size:", error);
-                // Continue with original video
-            }
+             const warningMsg = `Video file size (${(videoBlob.size / (1024 * 1024)).toFixed(1)} MB) exceeds the ideal size of ${IDEAL_BLOB_SIZE_BYTES / (1024 * 1024)} MB. Processing may take longer or fail.`; // New warning
+             console.warn(warningMsg);
+             sendMessageToPopup({ action: 'showNotification', message: warningMsg, type: 'warning' });
+            // Original videoBlob is kept, will be sent as is
         }
     }
 
@@ -1000,9 +959,9 @@ async function callGeminiApi(videoBlob: Blob | null, transcriptData: Array<any>,
 
         // 6. Process the response
         let finalResult: string | null = null;
-        if (responseData.candidates && responseData.candidates.length > 0) {
+        if (responseData?.candidates && responseData.candidates.length > 0) {
             const candidate = responseData.candidates[0];
-            if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+            if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
                  console.warn(`Gemini generation finished with reason: ${candidate.finishReason}`);
                  if (candidate.finishReason === 'SAFETY') {
                       sendMessageToPopup({ action: 'showNotification', message: 'AI response blocked due to safety settings.', type: 'error' });
@@ -1072,13 +1031,20 @@ async function callGeminiApi(videoBlob: Blob | null, transcriptData: Array<any>,
 // --- Internal Helper Functions ---
 
 /**
- * Refactored logic to start click/input recording.
- * Finds the active tab, sends 'startListening' to content script, updates state.
- * @param {number} [requestingTabId] - The ID of the tab initiating the request (e.g., from popup).
- * @throws {Error} If no suitable active tab is found or if screen recording is active.
+ * Starts the click recording process in the content script of the active tab.
+ * Sets `isRecording` state to true and stores the active tab ID.
+ * @param {number | undefined} requestingTabId - The ID of the tab requesting the start (e.g., popup tab).
+ * @throws {Error} If recording is already active or no active tab found.
  */
 async function startClickRecordingInternal(requestingTabId: number | undefined): Promise<void> {
-    console.log("[Background] Attempting to start click recording.");
+    // Clear video resources when starting a new click recording (as per plan)
+    await clearVideoResources(); // <-- Added this line
+
+    console.log("[Background] Initiating click recording...");
+    if (isRecording) {
+        throw new Error('Recording is already active.');
+    }
+
     let tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     // Prioritize the tab that initiated the request if provided
     let targetTab = requestingTabId ? tabs.find(t => t.id === requestingTabId) : tabs[0];
@@ -1108,7 +1074,6 @@ async function startClickRecordingInternal(requestingTabId: number | undefined):
              sendMessageToContentScript(activeTabId, { action: 'stopListening' });
         }
     }
-
 
     activeTabId = targetTab.id;
     isRecording = true;

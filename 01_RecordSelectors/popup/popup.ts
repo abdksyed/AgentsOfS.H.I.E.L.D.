@@ -172,9 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Disable if anything is recording OR AI is generating OR BOTH video AND clicks are missing
             aiGenerateBtn.disabled = isRecording || isScreenRecording || isAiGenerating || (!hasVideo && !hasClickData);
         }
-        if (aiCopyBtn) {
-            aiCopyBtn.disabled = !hasValidAiResults; // Enable only if there are valid results
-        }
+        if (aiCopyBtn) aiCopyBtn.disabled = !hasValidAiResults;
 
         // Update main button states (pass hasValidAiResults)
         updateButtonStates(isRecording, isScreenRecording, hasClickData, hasVideo, activeTabId, hasValidAiResults);
@@ -297,7 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     reEnableButton();
                     return;
                 }
-                if (response && response.success && typeof response.textContent === 'string') {
+                if (response?.success && typeof response?.textContent === 'string') {
                     console.log("[Popup] Received events content from background. Creating blob and initiating download.");
                     try {
                         const blob = new Blob([response.textContent], { type: 'text/plain;charset=utf-8' });
@@ -456,10 +454,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     if(aiResultsTextarea) aiResultsTextarea.value = `Error: ${chrome.runtime.lastError.message}`;
                     displayStatusMessage(`Error generating steps: ${chrome.runtime.lastError.message}`, 'error');
                     // Re-enable button on error? State should update from background eventually.
-                } else if (response && !response.success) {
-                     console.error("Background reported error initiating AI generation:", response.error);
-                     if(aiResultsTextarea) aiResultsTextarea.value = `Error: ${response.error || 'Unknown error'}`;
-                     displayStatusMessage(`Failed to start AI generation: ${response.error || 'Unknown error'}`, 'error');
+                } else if (response?.success === false) {
+                     console.error("Background reported error initiating AI generation:", response?.error);
+                     if(aiResultsTextarea) aiResultsTextarea.value = `Error: ${response?.error || 'Unknown error'}`;
+                     displayStatusMessage(`Failed to start AI generation: ${response?.error || 'Unknown error'}`, 'error');
                     // Re-enable button on error? State should update from background eventually.
                 } else {
                      console.log("AI generation request sent successfully.");
@@ -527,22 +525,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 saveApiKeyBtn.disabled = true;
                 saveApiKeyBtn.textContent = 'Saving...';
                 console.log("[Popup] Sending saveApiKey message to background");
-                chrome.runtime.sendMessage({ action: 'saveApiKey', apiKey: apiKey }, (response?: { success: boolean; error?: string }) => {
-                     console.log("[Popup] Received saveApiKey response:", response);
+                chrome.storage.session.set({ geminiApiKey: apiKey }, () => { // Changed from chrome.storage.local.set
+                     console.log("[Popup] API key saved directly in popup session storage.");
                      if (saveApiKeyBtn) { // Check if button still exists
                          saveApiKeyBtn.disabled = false;
                          saveApiKeyBtn.textContent = 'Save Key';
                      }
                     if (chrome.runtime.lastError) {
-                        console.error("[Popup] Error saving API key:", chrome.runtime.lastError);
+                        console.error("[Popup] Error saving API key to session storage:", chrome.runtime.lastError);
                         displayStatusMessage(`Error saving key: ${chrome.runtime.lastError.message}`, 'error');
-                    } else if (response && response.success) {
-                        console.log("[Popup] API key saved successfully");
+                    } else {
+                        console.log("[Popup] API key saved successfully in session storage.");
                         displayStatusMessage('API Key saved successfully!', 'success');
                          if (apiKeyInput) apiKeyInput.value = ''; // Clear input after successful save
-                    } else {
-                        console.error("[Popup] Failed to save API key:", response);
-                        displayStatusMessage(`Failed to save API key: ${response?.error || 'Unknown error'}`, 'error');
                     }
                 });
             } else {
