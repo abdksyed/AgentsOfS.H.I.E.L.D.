@@ -1,0 +1,184 @@
+body {
+    font-family: sans-serif;
+    margin: 20px;
+    background-color: #f4f4f4;
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+}
+
+.controls {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 15px; /* Spacing between items */
+}
+
+.controls label {
+    font-weight: bold;
+}
+
+.controls select,
+.controls input[type="date"],
+.controls button {
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.controls button {
+    cursor: pointer;
+    background-color: #5cb85c;
+    color: white;
+    border-color: #4cae4c;
+}
+
+.controls button:hover {
+    background-color: #4cae4c;
+}
+
+#exportCsv {
+    background-color: #337ab7;
+    border-color: #2e6da4;
+}
+
+#exportCsv:hover {
+    background-color: #286090;
+}
+
+.summary {
+    margin-bottom: 20px;
+    padding: 10px;
+    background-color: #e9edf1;
+    border-radius: 5px;
+}
+
+.summary p {
+    margin: 5px 0;
+    font-weight: bold;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: left;
+}
+
+th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+
+tbody tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+tbody tr:hover {
+    background-color: #f1f1f1;
+}
+
+/* Word break for long URLs */
+td:nth-child(2) {
+    word-break: break-all;
+}
+
+/* Center align all time and date columns */
+td:nth-child(3),
+td:nth-child(4),
+td:nth-child(5),
+td:nth-child(6),
+td:nth-child(7),
+td:nth-child(8) {
+    text-align: center;
+}
+
+/* Additional styling for datetime columns */
+td:nth-child(7),
+td:nth-child(8) {
+    font-size: 0.9em;
+    color: #555;
+}
+
+/* Styles for Hierarchy */
+.hostname-row {
+    font-weight: bold;
+    background-color: #e8f0fe; /* Light blue background for host rows */
+    cursor: pointer;
+}
+
+.hostname-row:hover {
+    background-color: #dbe7fd;
+}
+
+.page-row {
+    background-color: #ffffff; /* White background for page rows */
+}
+
+.page-row td:first-child {
+    padding-left: 30px; /* Indent page rows */
+}
+
+/* Styles for Sortable Headers */
+th[data-sort-key] {
+    cursor: pointer;
+    position: relative; /* Needed for pseudo-element positioning */
+}
+
+th[data-sort-key]:hover {
+    background-color: #e2e2e2;
+}
+
+/* Arrows for sorting indicators */
+th[data-sort-key]::after {
+    content: '';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    border: 5px solid transparent; /* Triangle size */
+    opacity: 0.5;
+    transform: translateY(-50%);
+}
+
+th[data-sort-key].sort-asc::after {
+    border-bottom-color: #666; /* Arrow pointing up */
+    opacity: 1;
+}
+
+th[data-sort-key].sort-desc::after {
+    border-top-color: #666; /* Arrow pointing down */
+    opacity: 1;
+}
+
+/* Specific style for the first column (expander or hostname title) */
+th:nth-child(2) { /* Adjust if header structure changes */
+   /* Prevent sort indicator if it's just the title column */
+   /* Or style differently */
+}
+
+.hostname-row td:nth-child(7),
+.hostname-row td:nth-child(8) {
+     /* Style aggregated date differently if needed */
+     font-size: 0.9em;
+     color: #555;
+}
+
+.page-row td:nth-child(7),
+.page-row td:nth-child(8) {
+     /* Style page date differently if needed */
+     font-size: 0.9em;
+     color: #555;
+}
