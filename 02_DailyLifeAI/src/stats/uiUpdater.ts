@@ -24,13 +24,24 @@ export function renderStatsTable(data: AggregatedHostnameData[], tableBody: HTML
         }
         const formattedHostLifeTime = formatTime(hostLifeTimeMs > 0 ? hostLifeTimeMs : 0);
 
-        hostRow.innerHTML = `
-            <td><span class="toggle-icon">▶</span> ${hostData.hostname} (${hostData.pages.length})</td>
-            <td>${formatTime(hostData.totalActiveMs)}</td> <!-- Active Time -->
-            <td>${hostData.firstSeen === 0 ? '-' : new Date(hostData.firstSeen).toLocaleString()}</td> <!-- First Seen -->
-            <td>${hostData.lastSeen === 0 ? '-' : new Date(hostData.lastSeen).toLocaleString()}</td> <!-- Last Seen -->
-            <td>${formattedHostLifeTime}</td> <!-- Life Time -->
-        `;
+        // Create and append table data cells using DOM manipulation
+        const toggleCell = hostRow.insertCell();
+        toggleCell.innerHTML = `<span class="toggle-icon">▶</span> ${hostData.hostname} (${hostData.pages.length})`;
+
+        const activeTimeCell = hostRow.insertCell();
+        activeTimeCell.textContent = formatTime(hostData.totalActiveMs);
+        activeTimeCell.classList.add('text-right'); // Assuming text-right class for alignment, adjust if needed.
+
+        const firstSeenCell = hostRow.insertCell();
+        firstSeenCell.textContent = hostData.firstSeen === 0 ? '-' : new Date(hostData.firstSeen).toLocaleString();
+
+        const lastSeenCell = hostRow.insertCell();
+        lastSeenCell.textContent = hostData.lastSeen === 0 ? '-' : new Date(hostData.lastSeen).toLocaleString();
+
+        const lifeTimeCell = hostRow.insertCell();
+        lifeTimeCell.textContent = formattedHostLifeTime;
+        lifeTimeCell.classList.add('text-right'); // Assuming text-right class for alignment, adjust if needed.
+
         // Add click listener for toggling
         hostRow.onclick = () => {
             const details = tableBody.querySelectorAll<HTMLElement>(`.page-row[data-host="${hostData.hostname}"]`);

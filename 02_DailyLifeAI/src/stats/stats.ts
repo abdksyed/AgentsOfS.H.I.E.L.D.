@@ -5,26 +5,26 @@ import { updateSummary } from "./uiUpdater";
 import { formatTime } from '../common/utils';
 
 // DOM Elements
-const dateRangeSelect = document.getElementById('dateRange') as HTMLSelectElement;
-const customDatePickersDiv = document.getElementById('customDatePickers') as HTMLDivElement;
-const startDateInput = document.getElementById('startDate') as HTMLInputElement;
-const endDateInput = document.getElementById('endDate') as HTMLInputElement;
-const applyCustomRangeButton = document.getElementById('applyCustomRange') as HTMLButtonElement;
-const exportCsvButton = document.getElementById('exportCsv') as HTMLButtonElement;
-const statsTableBody = document.getElementById('statsTableBody') as HTMLTableSectionElement;
-const statsTableHeader = document.querySelector('#statsTable thead') as HTMLTableSectionElement;
+const dateRangeSelect = document.getElementById('dateRange') as HTMLSelectElement | null;
+const customDatePickersDiv = document.getElementById('customDatePickers') as HTMLDivElement | null;
+const startDateInput = document.getElementById('startDate') as HTMLInputElement | null;
+const endDateInput = document.getElementById('endDate') as HTMLInputElement | null;
+const applyCustomRangeButton = document.getElementById('applyCustomRange') as HTMLButtonElement | null;
+const exportCsvButton = document.getElementById('exportCsv') as HTMLButtonElement | null;
+const statsTableBody = document.getElementById('statsTableBody') as HTMLTableSectionElement | null;
+const statsTableHeader = document.querySelector('#statsTable thead') as HTMLTableSectionElement | null;
 
 // State to hold the currently fetched stats for export and sorting
 let currentStatsData: AggregatedHostnameData[] = [];
 // Use more specific type for sort keys derived from headers
-type SortableHeaderKey = 'hostname' | 'activeTime' | 'totalOpenTime' | 'firstSeen' | 'lastSeen';
+type SortableHeaderKey = 'hostname' | 'activeTime' | 'firstSeen' | 'lastSeen' | 'lifeTime';
 // Map header keys to actual data property keys for sorting
-const sortKeyMap: { [key in SortableHeaderKey]: keyof Omit<AggregatedHostnameData, 'pages'> } = {
+const sortKeyMap: { [key in SortableHeaderKey]: keyof Omit<AggregatedHostnameData, 'pages'> | 'lifeTime' } = {
     hostname: 'hostname',
     activeTime: 'totalActiveMs',
-    totalOpenTime: 'lastSeen',
     firstSeen: 'firstSeen',
-    lastSeen: 'lastSeen'
+    lastSeen: 'lastSeen',
+    lifeTime: 'firstSeen' // Map to an existing key, logic handled in sortData
 };
 
 let currentSortKey: SortableHeaderKey = 'activeTime'; // Default sort key (use header key)
@@ -35,6 +35,18 @@ let currentSortDirection: 'asc' | 'desc' = 'desc'; // Default sort direction
  * Returns [startDateString, endDateString]
  */
 function getDateRange(): [string, string] {
+    if (!dateRangeSelect || !startDateInput || !endDateInput) {
+        console.error("Required date elements not found.");
+        // Fallback to today or handle error appropriately
+        const today = new Date();
+         const toYyyyMmDd = (d: Date): string => {
+             const year = d.getFullYear();
+             const month = String(d.getMonth() + 1).padStart(2, '0');
+             const day = String(d.getDate()).padStart(2, '0');
+             return `${year}-${month}-${day}`;
+         };
+        return [toYyyyMmDd(today), toYyyyMmDd(today)];
+    }
     const rangeValue = dateRangeSelect.value;
     const today = new Date();
     const endDate = new Date(today); // Default end date is today
@@ -103,8 +115,13 @@ function sortData() {
         let valA: string | number | undefined;
         let valB: string | number | undefined;
 
-        // Get values based on the *internal* sort key
-        if (sortKeyInternal === 'hostname') {
+        if (currentSortKey === 'lifeTime') {
+            // Calculate life time on the fly for sorting
+            const lifeTimeA = (a.lastSeen && a.firstSeen) ? a.lastSeen - a.firstSeen : 0;
+            const lifeTimeB = (b.lastSeen && b.firstSeen) ? b.lastSeen - b.firstSeen : 0;
+            valA = lifeTimeA;
+            valB = lifeTimeB;
+        } else if (sortKeyInternal === 'hostname') {
              valA = a.hostname.toLowerCase();
              valB = b.hostname.toLowerCase();
         } else {
@@ -134,7 +151,10 @@ function sortData() {
  * Updates the visual indicators on table headers for sorting.
  */
 function updateSortIndicators() {
-    if (!statsTableHeader) return;
+    if (!statsTableHeader) {
+        console.warn("Stats table header not found for sorting indicators.");
+        return;
+    }
     statsTableHeader.querySelectorAll('th[data-sort-key]').forEach(th => {
         const thElement = th as HTMLElement;
         const key = thElement.dataset.sortKey as SortableHeaderKey | undefined; // Cast dataset key
@@ -150,54 +170,66 @@ function updateSortIndicators() {
  * Main function to load and display statistics.
  */
 async function loadAndDisplayStats() {
-    if (!statsTableBody) return;
+    if (!statsTableBody) {
+        console.error("Stats table body not found. Cannot display data.");
+        return;
+    }
 
-    statsTableBody.innerHTML = '<tr><td colspan="8">Loading data...</td></tr>'; // Show loading state
+    statsTableBody.innerHTML = '<tr><td colspan="5">Loading data...</td></tr>'; // Show loading state
     currentStatsData = []; // Clear previous data
 
     try {
-        const [startDate, endDate] = getDateRange();
+        const [startDate, endDate] = getDateRange(); // getDateRange handles its own element checks
         console.log(`Requesting stats for range: ${startDate} to ${endDate}`);
         currentStatsData = await fetchAndProcessStats(startDate, endDate);
         sortData(); // Sort the data based on current settings
-        renderStatsTable(currentStatsData, statsTableBody);
-        updateSummary(currentStatsData); // Update summary section
-        updateSortIndicators(); // Update header visuals
+        renderStatsTable(currentStatsData, statsTableBody!); // renderStatsTable needs tableBody
+        updateSummary(currentStatsData); // updateSummary does not directly access these DOM elements
+        updateSortIndicators(); // updateSortIndicators needs statsTableHeader
     } catch (error) {
         console.error("Failed to load or display stats:", error);
-        statsTableBody.innerHTML = '<tr><td colspan="8">Error loading data. See console for details.</td></tr>';
+        statsTableBody.innerHTML = '<tr><td colspan="5">Error loading data. See console for details.</td></tr>';
     }
 }
 
 // --- Event Listeners --- //
 
-dateRangeSelect.addEventListener('change', () => {
-    if (dateRangeSelect.value === 'custom') {
-        customDatePickersDiv.style.display = 'block';
-         // Set default custom dates to today
-         const todayStr = getDateRange()[0]; // Careful: calling getDateRange might trigger alerts if custom selected
-         if (!startDateInput.value) startDateInput.value = todayStr;
-         if (!endDateInput.value) endDateInput.value = todayStr;
-    } else {
-        customDatePickersDiv.style.display = 'none';
-        loadAndDisplayStats(); // Reload stats for non-custom ranges
-    }
-});
+// Check if dateRangeSelect and customDatePickersDiv exist before adding listener
+if (dateRangeSelect && customDatePickersDiv && startDateInput && endDateInput) {
+    dateRangeSelect.addEventListener('change', () => {
+        if (dateRangeSelect.value === 'custom') {
+            customDatePickersDiv.style.display = 'block';
+             // Set default custom dates to today
+             const todayStr = toYyyyMmDd(new Date());
+             if (!startDateInput.value) startDateInput.value = todayStr;
+             if (!endDateInput.value) endDateInput.value = todayStr;
+        } else {
+            customDatePickersDiv.style.display = 'none';
+            loadAndDisplayStats(); // Reload stats for non-custom ranges
+        }
+    });
+}
 
-applyCustomRangeButton.addEventListener('click', () => {
-    loadAndDisplayStats(); // Reload stats using the custom dates
-});
+// Check if applyCustomRangeButton exists before adding listener
+if (applyCustomRangeButton) {
+    applyCustomRangeButton.addEventListener('click', () => {
+        loadAndDisplayStats(); // Reload stats using the custom dates
+    });
+}
 
-exportCsvButton.addEventListener('click', () => {
-     if (currentStatsData.length > 0) {
-        const [startDate, endDate] = getDateRange();
-        const filename = `dailylifeai_stats_${startDate}_to_${endDate}.csv`;
-        // Pass the aggregated data for CSV export
-        exportStatsToCsv(currentStatsData, filename);
-    } else {
-        alert("No data loaded to export.");
-    }
-});
+// Check if exportCsvButton exists before adding listener
+if (exportCsvButton) {
+    exportCsvButton.addEventListener('click', () => {
+         if (currentStatsData.length > 0) {
+            const [startDate, endDate] = getDateRange(); // getDateRange handles its own element checks
+            const filename = `dailylifeai_stats_${startDate}_to_${endDate}.csv`;
+            // Pass the aggregated data for CSV export
+            exportStatsToCsv(currentStatsData, filename);
+        } else {
+            alert("No data loaded to export.");
+        }
+    });
+}
 
 // Add listeners to table headers for sorting
 if (statsTableHeader) {
@@ -218,7 +250,7 @@ if (statsTableHeader) {
             }
 
             sortData(); // Re-sort the existing data
-            renderStatsTable(currentStatsData, statsTableBody); // Re-render the table
+            renderStatsTable(currentStatsData, statsTableBody!); // Re-render the table
             updateSortIndicators(); // Update header visuals
         });
     });
@@ -237,11 +269,14 @@ const toYyyyMmDd = (d: Date): string => {
 // Initialize date pickers and load initial stats
 document.addEventListener('DOMContentLoaded', () => {
     // Set default custom dates if needed (e.g., to today)
-    const todayStr = toYyyyMmDd(new Date());
-    if (!startDateInput.value) startDateInput.value = todayStr;
-    if (!endDateInput.value) endDateInput.value = todayStr;
+    if (startDateInput && endDateInput) {
+        const todayStr = toYyyyMmDd(new Date());
+        if (!startDateInput.value) startDateInput.value = todayStr;
+        if (!endDateInput.value) endDateInput.value = todayStr;
+    }
 
     // Initial load based on default selection (e.g., 'today')
+    // loadAndDisplayStats already checks for statsTableBody
     loadAndDisplayStats();
 });
 
@@ -249,7 +284,8 @@ document.addEventListener('DOMContentLoaded', () => {
  * Renders the stats table.
  */
 function renderStatsTable(data: AggregatedHostnameData[], tableBody: HTMLTableSectionElement) {
-    tableBody.innerHTML = ''; // Clear existing rows
+    // Assumes tableBody is already checked for null by the caller (loadAndDisplayStats)
+    tableBody.innerHTML = ''; // Clear previous rows
 
     if (data.length === 0) {
         const row = tableBody.insertRow();
@@ -268,7 +304,7 @@ function renderStatsTable(data: AggregatedHostnameData[], tableBody: HTMLTableSe
         // --- Host Row Cells (5 Cells Total) ---
         // 1. Hostname / Page Title Column (with count)
         const hostnameCell = hostRow.insertCell();
-        const pageCount = hostData.pages.length;
+        const pageCount = hostData.pages?.length || 0;
         hostnameCell.innerHTML = `<span class="toggle-icon">▶</span> ${hostData.hostname} (${pageCount})`;
         hostnameCell.className = 'hostname-cell';
         hostnameCell.style.cursor = 'pointer';

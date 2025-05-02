@@ -4,9 +4,21 @@ import { clearAllData } from './storageManager';
 
 console.log("Service Worker starting...");
 
+/**
+ * Ensures the extension state is properly initialized and event listeners are registered.
+ * Used for both initial setup and when recovering from service worker inactivity.
+ */
+function ensureExtensionIsReady() {
+    return initializeState().then(() => {
+        console.log("State initialization finished.");
+        registerEventListeners();
+    }).catch(error => {
+        console.error("Error during extension initialization:", error);
+    });
+}
+
 // Initialize state on startup
-initializeState().then(() => {
-    console.log("State initialization finished.");
+ensureExtensionIsReady().then(() => {
     // Once state is initialized, set up the listeners
     registerEventListeners();
 
@@ -29,8 +41,7 @@ initializeState().then(() => {
             contexts: ["action"] // Show in the context menu for the extension icon
         });
 
-        initializeState(); // Re-initialize state on install/update
-        registerEventListeners(); // Ensure listeners are registered
+        ensureExtensionIsReady(); // Ensure extension is ready on install/update
         // Set up initial alarm if needed (e.g., for periodic saves)
         // chrome.alarms.create('periodicSave', { periodInMinutes: 5 });
         // Keep service worker alive logic (optional)
@@ -40,8 +51,7 @@ initializeState().then(() => {
 
     chrome.runtime.onStartup.addListener(() => {
         console.log("Extension starting up.");
-        initializeState(); // Use stateManager function
-        registerEventListeners(); // Ensure listeners are set up on startup too
+        ensureExtensionIsReady(); // Ensure extension is ready on startup
     });
 
     // Example: Allow clearing data from the options page or popup
@@ -112,9 +122,8 @@ console.log("Service Worker setup complete.");
 
 // Initial setup check - important if service worker was inactive
 // Ensure state is initialized when the worker wakes up
-initializeState(); // Use stateManager function
+ensureExtensionIsReady(); // Ensure extension is ready when worker wakes up
 // Make sure listeners are active
-registerEventListeners();
 
 // Keep alive Test (Commented out)
 /*

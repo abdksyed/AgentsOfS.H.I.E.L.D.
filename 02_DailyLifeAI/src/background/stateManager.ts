@@ -260,6 +260,11 @@ export async function initializeState(): Promise<void> {
 
     } catch (error) {
         console.error("[stateManager] Error during state initialization:", error);
-        activeTabs.clear();
+        // Log error but don't clear state if we've already processed some tabs
+        if (activeTabs.size === 0) {
+            console.error("[stateManager] No tabs were processed successfully.");
+        } else {
+            console.warn(`[stateManager] Partial initialization with ${activeTabs.size} tabs.`);
+        }
     }
 }
