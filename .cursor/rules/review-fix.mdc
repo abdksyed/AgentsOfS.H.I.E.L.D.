@@ -15,8 +15,10 @@ For the repo `AgentsOfS.H.I.E.L.D.` owned by `abdksyed` get the review comments 
     Use `jq` command to convert the JSON file to text file by extracting review comments and ignoring outdated/resolved comments.
     Example: `jq -r ".[] | select(.line != null) | \"File: \(.path)\nStart Line: \(.start_line // \"N/A\")\nEnd Line: \(.line)\nComment: \(.body)\n---\"" review/code_review.json > review/code_review.txt`
 
-3. **Step 3:** Read the file [code_review.txt](mdc:AgentsOfS.H.I.E.L.D./AgentsOfS.H.I.E.L.D./review/code_review.txt) completely L1:LEND and carefullly review each issue, extract the main heading for each issue and the related code block where the issue is marked. There will be suggested code, committable suggestion etc. Review those solutions provided. Think and create multiple solutions to the issues listed along with Pros and Cons for each solution.
+3. **Step 3:** Read the file [code_review.txt](mdc:AgentsOfS.H.I.E.L.D./review/code_review.txt) completely L1:LEND and carefullly review each issue, extract the main heading for each issue and the related code block where the issue is marked. There will be suggested code, committable suggestion etc. Review those solutions provided. Think and create multiple solutions to the issues listed along with Pros and Cons for each solution.
 
-4. **Step 4:** Create the checklist of the issues in [plan.md](mdc:AgentsOfS.H.I.E.L.D./review/plan.md) file, and then create detailed plan on how to resolve the issues mentioning the above solutions along with their pros and cons.
+4. **Step 4:** Create the checklist of the issues in [plan.md](mdc:review/plan.md) file, and then create detailed plan on how to resolve the issues mentioning the above solutions along with their pros and cons.
 
-DO NOT STOP UNTIL YOU HAVE CREATED the [plan.md](mdc:AgentsOfS.H.I.E.L.D./review/plan.md) file and have created the detailed plan.
+DO NOT STOP UNTIL YOU HAVE CREATED the [plan.md](mdc:review/plan.md) file and have created the detailed plan.
+
+5. **Step 5:** Check if the [plan.md](mdc:review/plan.md) is having the detailed plan the issues present in the [code_review.txt](mdc:review/code_review.txt) are matching the issues in [plan.md](mdc:review/plan.md)
