@@ -1,0 +1,21 @@
+{
+  "name": "web-time-tracker",
+  "version": "1.0.0",
+  "description": "A Chrome extension to track time spent on websites.",
+  "main": "dist/background.js",
+  "scripts": {
+    "build": "webpack --mode=production",
+    "dev": "webpack --mode=development --watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.257",
+    "copy-webpack-plugin": "^11.0.0",
+    "ts-loader": "^9.4.2",
+    "typescript": "^5.0.0",
+    "webpack": "^5.88.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "idb": "^8.0.2"
+  }
+}

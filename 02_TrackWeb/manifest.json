@@ -1,20 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "DailyLifeAI Time Tracker",
-  "version": "0.1.0",
+  "name": "Web Time Tracker",
+  "version": "1.0",
   "description": "Tracks time spent on websites.",
   "permissions": [
     "tabs",
     "storage",
-    "idle",
-    "alarms",
-    "contextMenus"
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.bundle.js"
+    "service_worker": "dist/background.js"
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "dist/stats.html",
     "default_icon": {
       "32": "icons/icon32.png",
       "48": "icons/icon48.png",
@@ -25,6 +26,5 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "options_page": "stats.html"
+  }
 } 
