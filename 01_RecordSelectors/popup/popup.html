@@ -25,14 +25,13 @@
         <div class="controls combined-controls">
             <button id="start-both-btn">Start Both</button>
             <button id="stop-both-btn" disabled>Stop Both</button>
+            <button id="clear-btn" disabled>Clear All</button>
         </div>
         <div class="controls click-controls">
             <label>Click Recording:</label>
             <button id="start-btn">Start New Events</button>
-            <button id="resume-btn" disabled>Resume Events</button>
             <button id="stop-btn" disabled>Stop Events</button>
-            <button id="clear-btn" disabled>Clear Events</button>
-            <button id="download-btn" disabled>Download Events</button>
+            <button id="download-btn" disabled>Download Transcript</button>
         </div>
         <div class="controls screen-controls">
             <label>Screen Recording:</label>
@@ -40,8 +39,29 @@
             <button id="stop-screen-btn" disabled>Stop Screen Rec</button>
             <button id="download-video-btn" disabled>Download Video</button>
         </div>
-        <div id="statusMessage" class="status-message" role="status" aria-live="polite" aria-label="Recording status updates"></div>
+        <div class="ai-magic-section">
+            <label>AI Magic:</label>
+            <label for="ai-prompt-select">Prompt Type:</label>
+            <select id="ai-prompt-select">
+                <option value="step_gen_prompt.md" selected>Generate Steps</option>
+                <option value="docs_gen_prompt.md">Generate Docs</option>
+            </select>
+            <label for="ai-prompt">User Prompt:</label>
+            <textarea id="ai-prompt" rows="4" placeholder="Describe the action performed in the video..."></textarea>
+            <button id="ai-generate-btn">Generate</button>
+            <label>Results:</label>
+            <textarea id="ai-results" rows="10" readonly placeholder="AI results will appear here..."></textarea>
+            <button id="ai-copy-btn" disabled>Copy Results</button>
+        </div>
+        <div class="settings-section">
+            <label>Settings:</label>
+            <label for="api-key-input">Gemini API Key:</label>
+            <input type="password" id="api-key-input" placeholder="Enter your API key">
+            <p class="note">Note: your API key is stored only for the current browser session and will be cleared upon closing.</p>
+            <button id="save-api-key-btn">Save Key</button>
+        </div>
+        <div id="statusMessage" class="status-message" role="status" aria-live="polite" aria-label="Status updates"></div>
     </div>
-    <script src="popup.js"></script>
+    <script src="../dist/popup/popup.js"></script>
 </body>
 </html>
