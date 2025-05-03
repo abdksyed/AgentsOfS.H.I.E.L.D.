@@ -1,15 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Web Time Tracker",
-  "version": "1.0",
+  "version": "1.0.0",
   "description": "Tracks time spent on websites.",
   "permissions": [
     "tabs",
     "storage",
-    "scripting"
-  ],
-  "host_permissions": [
-    "<all_urls>"
+    "scripting",
+    "activeTab",
+    "alarms"
   ],
   "background": {
     "service_worker": "dist/background.js"

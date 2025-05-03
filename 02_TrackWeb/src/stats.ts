@@ -44,10 +44,12 @@ function renderTable() {
         if (!domainMap.has(entry.domain)) {
             domainMap.set(entry.domain, { active: 0, total: 0, urls: [] });
         }
-        const domainData = domainMap.get(entry.domain)!;
-        domainData.active += entry.activeSeconds;
-        domainData.total += entry.totalSeconds;
-        domainData.urls.push(entry);
+        const domainData = domainMap.get(entry.domain);
+        if (domainData) {
+            domainData.active += entry.activeSeconds;
+            domainData.total += entry.totalSeconds;
+            domainData.urls.push(entry);
+        }
     });
 
     // Sort domains by total time (descending)
@@ -115,8 +117,9 @@ function renderUrlDetails(domainRow: HTMLTableRowElement, urls: WebsiteTimeEntry
         // Add click listener to copy URL
         const titleCell = urlRow.querySelector('.url-title-cell');
         if (titleCell) {
-            titleCell.addEventListener('click', () => {
-                navigator.clipboard.writeText(urlEntry.normalizedUrl).then(() => {
+            titleCell.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(urlEntry.normalizedUrl);
                     // Change text to "Copied!" temporarily
                     const originalText = titleCell.textContent;
                     titleCell.textContent = 'Copied!';
@@ -124,10 +127,10 @@ function renderUrlDetails(domainRow: HTMLTableRowElement, urls: WebsiteTimeEntry
                         titleCell.textContent = originalText;
                     }, 2000); // Change back after 2 seconds
                     console.log('URL copied to clipboard');
-                }).catch(err => {
+                } catch (err) {
                     console.error('Failed to copy URL: ', err);
                     showError('Failed to copy URL.');
-                });
+                }
             });
         }
     });
@@ -145,6 +148,10 @@ function truncateText(text: string, maxLength: number): string {
 
 // Export data to CSV
 async function exportToCsv() {
+    const originalButtonText = exportCsvButton.textContent;
+    exportCsvButton.textContent = 'Exporting...';
+    exportCsvButton.disabled = true;
+
     try {
         const entries = await getAllEntries();
         if (entries.length === 0) {
@@ -173,6 +180,9 @@ async function exportToCsv() {
     } catch (error) {
         showError('Failed to export data');
         console.error('Error exporting to CSV:', error);
+    } finally {
+        exportCsvButton.textContent = originalButtonText;
+        exportCsvButton.disabled = false;
     }
 }
 
@@ -181,6 +191,10 @@ async function clearData() {
     const confirmed = confirm('Are you sure you want to clear all tracking data? This cannot be undone.');
     if (!confirmed) return;
 
+    const originalButtonText = clearDataButton.textContent;
+    clearDataButton.textContent = 'Clearing...';
+    clearDataButton.disabled = true;
+
     try {
         await clearAllEntries();
         allEntries = [];
@@ -188,6 +202,9 @@ async function clearData() {
     } catch (error) {
         showError('Failed to clear data');
         console.error('Error clearing data:', error);
+    } finally {
+        clearDataButton.textContent = originalButtonText;
+        clearDataButton.disabled = false;
     }
 }
 

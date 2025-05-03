@@ -12,6 +12,9 @@ interface WebTimeTrackerDBSchema extends DBSchema {
   website_times: {
     key: string;
     value: WebsiteTimeEntry;
+    indexes: {
+      domain: string;
+    };
   };
 }
 
@@ -35,9 +38,30 @@ export async function openDatabase(): Promise<IDBPDatabase<WebTimeTrackerDBSchem
             keyPath: 'normalizedUrl',
           });
           // You might want to create indexes here if needed for performance on queries other than keyPath
-          // store.createIndex('domain', 'domain');
-          break;
+          const store = transaction.objectStore(STORE_NAME);
+          store.createIndex('domain', 'domain');
+          // Fallthrough for subsequent migrations
+
         // Add more cases for future schema migrations
+        // case 1:
+        //   // Migration from version 1 to version 2
+        //   // Example: Add a new object store or modify existing one
+        //   // db.createObjectStore('new_store', { keyPath: 'id' });
+        //   // Fallthrough
+
+        // case 2:
+        //   // Migration from version 2 to version 3
+        //   // Example: Add an index to an existing object store
+        //   // transaction.objectStore(STORE_NAME).createIndex('new_index', 'new_property');
+        //   // Fallthrough
+
+        default:
+          // If oldVersion is greater than or equal to the current version (DB_VERSION),
+          // it means the user is downgrading or there's an unexpected version number.
+          // In a real application, you might want to handle this more gracefully,
+          // perhaps by showing an error or refusing to open the database.
+          console.warn(`Unexpected database version. Old version: ${oldVersion}, New version: ${newVersion}`);
+          break;
       }
     },
     blocked() {
@@ -59,28 +83,53 @@ export async function openDatabase(): Promise<IDBPDatabase<WebTimeTrackerDBSchem
 }
 
 export async function getEntry(normalizedUrl: string): Promise<WebsiteTimeEntry | undefined> {
-  const db = await openDatabase();
-  return db.get(STORE_NAME, normalizedUrl);
+  try {
+    const db = await openDatabase();
+    return db.get(STORE_NAME, normalizedUrl);
+  } catch (error) {
+    console.error(`Error getting entry for ${normalizedUrl}:`, error);
+    throw error; // Re-throw the error for the caller to handle
+  }
 }
 
 export async function putEntry(entry: WebsiteTimeEntry): Promise<string> {
-  const db = await openDatabase();
-  return db.put(STORE_NAME, entry);
+  try {
+    const db = await openDatabase();
+    return db.put(STORE_NAME, entry);
+  } catch (error) {
+    console.error(`Error putting entry for ${entry.normalizedUrl}:`, error);
+    throw error; // Re-throw the error for the caller to handle
+  }
 }
 
 export async function getAllEntries(): Promise<WebsiteTimeEntry[]> {
-  const db = await openDatabase();
-  return db.getAll(STORE_NAME);
+  try {
+    const db = await openDatabase();
+    return db.getAll(STORE_NAME);
+  } catch (error) {
+    console.error('Error getting all entries:', error);
+    throw error; // Re-throw the error for the caller to handle
+  }
 }
 
 export async function clearAllEntries(): Promise<void> {
-  const db = await openDatabase();
-  await db.clear(STORE_NAME);
+  try {
+    const db = await openDatabase();
+    await db.clear(STORE_NAME);
+  } catch (error) {
+    console.error('Error clearing all entries:', error);
+    throw error; // Re-throw the error for the caller to handle
+  }
 }
 
 export async function deleteEntry(normalizedUrl: string): Promise<void> {
-  const db = await openDatabase();
-  await db.delete(STORE_NAME, normalizedUrl);
+  try {
+    const db = await openDatabase();
+    await db.delete(STORE_NAME, normalizedUrl);
+  } catch (error) {
+    console.error(`Error deleting entry for ${normalizedUrl}:`, error);
+    throw error; // Re-throw the error for the caller to handle
+  }
 }
 
 export type { WebsiteTimeEntry };

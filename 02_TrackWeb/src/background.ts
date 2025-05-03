@@ -1,15 +1,13 @@
 import { openDatabase, getEntry, putEntry, WebsiteTimeEntry, getAllEntries, clearAllEntries } from './db';
-import { normalizeUrl, getPageTitle } from './utils';
+import { normalizeUrl, getPageTitle, extractDomainFromUrl } from './utils';
 
-// Interval for total time updates (in milliseconds)
-const TOTAL_TIME_INTERVAL = 5000; // 5 seconds
-// Interval for active time updates (in milliseconds)
+// Constants for timer intervals (in milliseconds)
 const ACTIVE_TIME_INTERVAL = 1000; // 1 second
+const TOTAL_TIME_INTERVAL = 5000;  // 5 seconds
 
+// Variables to keep track of the currently active tab and its normalized URL
 let activeTabId: number | null = null;
 let lastActiveTabNormalizedUrl: string | null = null;
-let activeTabTimer: number | null = null;
-let totalTimeTimer: number | null = null;
 
 // Set of URLs to ignore for tracking
 const IGNORED_URL_PATTERNS = [
@@ -22,77 +20,54 @@ function isUrlIgnored(url: string): boolean {
   return IGNORED_URL_PATTERNS.some(pattern => pattern.test(url));
 }
 
-// Function to update time in the database
-async function updateTime(normalizedUrl: string, domain: string, timeInSeconds: { active?: number; total?: number }) {
-  if (isUrlIgnored(normalizedUrl)) {
-    return; // Do not track ignored URLs
-  }
+// Alarm names
+const ACTIVE_TIME_ALARM_NAME = 'activeTimeAlarm';
+const TOTAL_TIME_ALARM_NAME = 'totalTimeAlarm';
 
-  try {
-    const db = await openDatabase();
-    const entry = await getEntry(normalizedUrl);
+// Create alarms on service worker startup
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.create(TOTAL_TIME_ALARM_NAME, { periodInMinutes: TOTAL_TIME_INTERVAL / 60000 });
+});
 
-    if (entry) {
-      // Update existing entry
-      entry.activeSeconds += timeInSeconds.active || 0;
-      entry.totalSeconds += timeInSeconds.total || 0;
-      await putEntry(entry);
-    } else if (timeInSeconds.active || timeInSeconds.total) {
-      // Create new entry only if there's time to add
-      // Fetch title when a new entry is created
-      let titles = '';
-      // We might not have the tabId here directly, so we'll need to fetch title on first update after tab activation/update
-      // For now, let's create the entry and handle title fetching separately on first update.
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create(TOTAL_TIME_ALARM_NAME, { periodInMinutes: TOTAL_TIME_INTERVAL / 60000 });
+});
 
-      const newEntry: WebsiteTimeEntry = {
-        normalizedUrl,
-        domain,
-        titles: '', // Title will be fetched and updated later
-        activeSeconds: timeInSeconds.active || 0,
-        totalSeconds: timeInSeconds.total || 0,
-      };
-      await putEntry(newEntry);
-      console.log(`Created new entry for ${normalizedUrl}`);
-
-      // TODO: Trigger title fetching for this new entry
-      // This needs to be done when we have the tabId, likely in onActivated or onUpdated.
+// Listener for chrome.alarms
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === ACTIVE_TIME_ALARM_NAME) {
+    // Logic for active time tracking (originally in startActiveTimeTimer)
+    if (activeTabId !== null) {
+       chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        try {
+          if (tabs?.[0]?.id === activeTabId && tabs?.[0]?.url && !isUrlIgnored(tabs[0].url)) {
+            const normalizedUrl = normalizeUrl(tabs[0].url);
+            const domain = extractDomainFromUrl(normalizedUrl);
+            await updateTime(normalizedUrl, domain, { active: ACTIVE_TIME_INTERVAL / 1000 });
+          } else {
+            // If the tab is no longer active/focused, clear the active time alarm
+             chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
+          }
+        } catch (error) {
+          console.error('Error in active time alarm callback:', error);
+          // Optionally clear the alarm on error if needed
+          chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
+        }
+      });
+    } else {
+       // If activeTabId is null, clear the active time alarm
+      chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
     }
-  } catch (error) {
-    console.error(`Error updating time for ${normalizedUrl}:`, error);
-    // TODO: Implement persistent error notification for the stats page
-  }
-}
 
-// Timer function for active time tracking
-function startActiveTimeTimer(tabId: number, normalizedUrl: string, domain: string) {
-  if (activeTabTimer !== null) {
-    clearInterval(activeTabTimer);
-  }
-  activeTabTimer = setInterval(() => {
-    // Only increment if the tab is still active and the window is focused
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs && tabs[0] && tabs[0].id === tabId) {
-        updateTime(normalizedUrl, domain, { active: 1 });
-      }
-    });
-  }, ACTIVE_TIME_INTERVAL) as unknown as number; // setInterval returns a number in extension service workers
-}
-
-// Timer function for total time tracking
-function startTotalTimeTimer() {
-  if (totalTimeTimer !== null) {
-    clearInterval(totalTimeTimer);
-  }
-  totalTimeTimer = setInterval(async () => {
+  } else if (alarm.name === TOTAL_TIME_ALARM_NAME) {
+    // Logic for total time tracking (originally in startTotalTimeTimer)
     const windows = await chrome.windows.getAll({ populate: true });
     for (const window of windows) {
       if (window.tabs) {
         for (const tab of window.tabs) {
           if (tab.url && !isUrlIgnored(tab.url)) {
             const normalizedUrl = normalizeUrl(tab.url);
-            // Simple domain extraction (can be improved)
-            const domainMatch = normalizedUrl.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?#]+)/i);
-            const domain = domainMatch ? domainMatch[1] : 'Unknown Domain';
+            const domain = extractDomainFromUrl(normalizedUrl);
             await updateTime(normalizedUrl, domain, { total: TOTAL_TIME_INTERVAL / 1000 });
 
             // TODO: Implement title fetching logic here for existing tabs on startup/first run
@@ -101,11 +76,50 @@ function startTotalTimeTimer() {
         }
       }
     }
-  }, TOTAL_TIME_INTERVAL) as unknown as number; // setInterval returns a number in extension service workers
-}
+  }
+});
 
-// Initialize timers when the service worker starts
-startTotalTimeTimer();
+// Helper function to update time in IndexedDB
+async function updateTime(normalizedUrl: string, domain: string, timeInSeconds: { active?: number; total?: number }) {
+  try {
+    const db = await openDatabase(); // Assuming openDatabase is available from db.ts
+    const tx = db.transaction('website_times', 'readwrite');
+    const store = tx.objectStore('website_times');
+
+    // Use get and put within the same transaction for atomicity
+    // This addresses Issue 2: Race condition
+    const entry = await store.get(normalizedUrl);
+
+    if (entry) {
+      if (timeInSeconds.active) {
+        entry.activeSeconds = (entry.activeSeconds || 0) + timeInSeconds.active;
+      }
+      if (timeInSeconds.total) {
+        entry.totalSeconds = (entry.totalSeconds || 0) + timeInSeconds.total;
+      }
+      // Ensure titles is initialized if it's a new entry from total time timer before title fetching
+      if (entry.titles === undefined) {
+          entry.titles = '';
+      }
+      await store.put(entry);
+    } else {
+      // Create a new entry if it doesn't exist
+      const newEntry: WebsiteTimeEntry = {
+        normalizedUrl: normalizedUrl,
+        domain: domain,
+        titles: '', // Initialize titles to empty, will be fetched later by onUpdated/onActivated
+        activeSeconds: timeInSeconds.active || 0,
+        totalSeconds: timeInSeconds.total || 0,
+      };
+      await store.add(newEntry);
+    }
+
+    await tx.done; // Wait for the transaction to complete with promised IndexedDB
+  } catch (error) {
+    console.error(`Error updating time for ${normalizedUrl}:`, error);
+    // TODO: Implement a mechanism to notify the user about storage errors
+  }
+}
 
 // Listen for tab activation
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
@@ -114,10 +128,10 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     const tab = await chrome.tabs.get(activeInfo.tabId);
     if (tab.url && !isUrlIgnored(tab.url)) {
       const normalizedUrl = normalizeUrl(tab.url);
-       const domainMatch = normalizedUrl.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?#]+)/i);
-       const domain = domainMatch ? domainMatch[1] : 'Unknown Domain';
+       const domain = extractDomainFromUrl(normalizedUrl);
       lastActiveTabNormalizedUrl = normalizedUrl;
-      startActiveTimeTimer(activeInfo.tabId, normalizedUrl, domain);
+      // Start or restart the active time alarm
+      chrome.alarms.create(ACTIVE_TIME_ALARM_NAME, { periodInMinutes: ACTIVE_TIME_INTERVAL / 60000 });
 
       // Fetch and update title if it's a new entry or title is missing
        const entry = await getEntry(normalizedUrl);
@@ -131,13 +145,13 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 
     } else {
       lastActiveTabNormalizedUrl = null;
-      if (activeTabTimer !== null) {
-        clearInterval(activeTabTimer);
-        activeTabTimer = null;
-      }
+      // Clear the active time alarm if the tab is ignored
+       chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
     }
   } catch (error) {
     console.error('Error handling tab activation:', error);
+     // Clear the active time alarm on error
+     chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
   }
 });
 
@@ -145,25 +159,22 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     // No window is focused, stop active timer
-    if (activeTabTimer !== null) {
-      clearInterval(activeTabTimer);
-      activeTabTimer = null;
-    }
+    // Clear the active time alarm
+    chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
   } else if (activeTabId !== null) {
     // A window is focused, check if the previously active tab is still active in a focused window
-     chrome.tabs.query({ active: true, windowId: windowId }, (tabs) => {
+     chrome.tabs.query({ active: true, windowId: windowId }, async (tabs) => {
        if (tabs && tabs[0] && tabs[0].id === activeTabId && tabs[0].url && !isUrlIgnored(tabs[0].url)) {
-          const normalizedUrl = normalizeUrl(tabs[0].url);
-          const domainMatch = normalizedUrl.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?#]+)/i);
-          const domain = domainMatch ? domainMatch[1] : 'Unknown Domain';
-         startActiveTimeTimer(activeTabId, normalizedUrl, domain);
+          // If the previously active tab is still active in the focused window, ensure the alarm is running
+           chrome.alarms.create(ACTIVE_TIME_ALARM_NAME, { periodInMinutes: ACTIVE_TIME_INTERVAL / 60000 });
        } else {
-         if (activeTabTimer !== null) {
-           clearInterval(activeTabTimer);
-           activeTabTimer = null;
-         }
+         // If the previously active tab is not active in the focused window, clear the alarm
+         chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
        }
      });
+   } else {
+      // If activeTabId is null, clear the active time alarm on window focus change
+     chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
   }
 });
 
@@ -173,10 +184,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     // URL changed for the active tab in a window
     activeTabId = tabId;
     const normalizedUrl = normalizeUrl(changeInfo.url);
-    const domainMatch = normalizedUrl.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?#]+)/i);
-    const domain = domainMatch ? domainMatch[1] : 'Unknown Domain';
+    const domain = extractDomainFromUrl(normalizedUrl);
     lastActiveTabNormalizedUrl = normalizedUrl;
-    startActiveTimeTimer(tabId, normalizedUrl, domain);
+    // Start or restart the active time alarm
+    chrome.alarms.create(ACTIVE_TIME_ALARM_NAME, { periodInMinutes: ACTIVE_TIME_INTERVAL / 60000 });
 
      // Fetch and update title if it's a new entry or title is missing
      const entry = await getEntry(normalizedUrl);
@@ -204,9 +215,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
   } else if (changeInfo.url && !tab.active && tab.url && !isUrlIgnored(tab.url)) {
       // URL changed for a background tab
-      // The total time timer will pick this up on its next interval
+      // The total time alarm will pick this up on its next interval
       // Need to handle title fetching for background tabs too if they are newly tracked
        const normalizedUrl = normalizeUrl(tab.url);
+       const domain = extractDomainFromUrl(normalizedUrl);
        const entry = await getEntry(normalizedUrl);
        if (!entry) { // Newly tracked URL in background, fetch title after a short delay
          setTimeout(async () => {
@@ -246,12 +258,10 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   if (activeTabId === tabId) {
     activeTabId = null;
     lastActiveTabNormalizedUrl = null;
-    if (activeTabTimer !== null) {
-      clearInterval(activeTabTimer);
-      activeTabTimer = null;
-    }
+    // Clear the active time alarm if the active tab is removed
+    chrome.alarms.clear(ACTIVE_TIME_ALARM_NAME);
   }
-  // The total time timer handles stopping tracking for removed tabs implicitly
+  // The total time alarm handles stopping tracking for removed tabs implicitly
 });
 
 // Listen for messages from the stats page or popup
@@ -263,7 +273,12 @@ chrome.runtime.onMessage.addListener(
     } else if (request.action === 'clearAllEntries') {
        clearAllEntries().then(() => sendResponse({ success: true })).catch((error: Error) => sendResponse({ success: false, error: error.message }));
        return true;
+    } else if (request.action === 'exportData') {
+      // TODO: Implement data export logic
+      console.log('Export data action received');
+      sendResponse({ success: true });
     }
-    // Add other message handlers here (e.g., for specific data queries)
+    // Note: For other actions, sendResponse might not be called if not needed,
+    // or an error could be logged if the action is unrecognized.
   }
 );

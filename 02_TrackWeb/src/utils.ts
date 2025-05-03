@@ -13,7 +13,7 @@ export function normalizeUrl(url: string): string {
   } catch (e) {
     console.error(`Failed to normalize URL: ${url}`, e);
     // Return the original URL or a specific error indicator if normalization fails
-    return url; // Or throw an error, or return \'invalid-url\'
+    return `https://${url}`;
   }
 }
 
@@ -40,6 +40,8 @@ export function formatTime(totalSeconds: number): string {
  * Fetches the page title for a given tab.
  * @param tabId The ID of the tab.
  * @returns A promise that resolves with the page title or the tab's URL if title is unavailable.
+ * @requires permissions: ["scripting"]
+ * @requires host_permissions: ["<all_urls>"]
  */
 export async function getPageTitle(tabId: number): Promise<string> {
   try {
@@ -63,5 +65,15 @@ export async function getPageTitle(tabId: number): Promise<string> {
     console.error(`Failed to get tab info for tab ${tabId}:`, e);
     return 'Unknown Title';
   }
+}
+
+/**
+ * Extracts the domain from a given URL.
+ * @param url The URL string.
+ * @returns The extracted domain or 'Unknown Domain'.
+ */
+export function extractDomainFromUrl(url: string): string {
+  const domainMatch = url.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?#]+)/i);
+  return domainMatch ? domainMatch[1] : 'Unknown Domain';
 }
 

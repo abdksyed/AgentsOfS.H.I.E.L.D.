@@ -61,8 +61,7 @@ A Chrome extension designed to track the time spent on websites. It focuses on s
 ### **2.2 Data Storage**  
 
 #### **IndexedDB Schema**  
-``javascript
-// Object Store: time_entries
+```javascript
 // Object Store: 'website_times'
 {
   normalizedUrl: string, // Primary Key (e.g., "https://example.com/path")
@@ -71,7 +70,7 @@ A Chrome extension designed to track the time spent on websites. It focuses on s
   activeSeconds: number, // Total active seconds since tracking began
   totalSeconds: number  // Total open seconds since tracking began
 }
-``
+```
 
 #### **Data Management**
 - **Initialization:** On first load, create the IndexedDB database and object store.
@@ -113,12 +112,12 @@ A Chrome extension designed to track the time spent on websites. It focuses on s
 - Clicking the extension icon in the Chrome toolbar opens the `stats.html` page in a new tab.
 
 ### **Stats Page (`stats.html`)**  
--``mermaid
--flowchart LR
--    A[Date Range Filter] --> B[Table View]
--    B --> C[Export CSV]
--    B --> D[Aggregate by Domain/URL]
--``
+```mermaid
+flowchart LR
+    A[Date Range Filter] --> B[Table View]
+    B --> C[Export CSV]
+    B --> D[Aggregate by Domain/URL]
+```
 - **Layout:** Simple HTML page.
 - **Error Notification:** A noticeable (but simple, e.g., a colored banner) message appears at the top if any persistent DB errors have been logged.
 - **Data Display:**
@@ -146,51 +145,51 @@ A Chrome extension designed to track the time spent on websites. It focuses on s
 
 ## **5. Implementation Checklist**  
 1. [x] **`manifest.json`:**
-    *   Define basic extension properties (name, version, description, icons, manifest_version: 3).
-    *   Declare permissions: `tabs`, `storage`, `scripting`.
-    *   Register the background service worker (pointing to the compiled JS output, e.g., `dist/background.js`).
-    *   Define the action (toolbar icon click) to open `stats.html`.
+    - Define basic extension properties (name, version, description, icons, manifest_version: 3).
+    - Declare permissions: `tabs`, `storage`, `scripting`.
+    - Register the background service worker (pointing to the compiled JS output, e.g., `dist/background.js`).
+    - Define the action (toolbar icon click) to open `stats.html`.
 2. [x] **Build Setup (e.g., Webpack):**
-    *   Configure Webpack (or chosen bundler) to handle TypeScript (`.ts`) files.
-    *   Set up transpilation (e.g., using `ts-loader` or `babel-loader` with TypeScript preset).
-    *   Configure output paths for compiled JavaScript files (e.g., to a `dist/` directory).
-    *   Handle copying static assets (`stats.html`, CSS, icons) to the output directory.
+    - Configure Webpack (or chosen bundler) to handle TypeScript (`.ts`) files.
+    - Set up transpilation (e.g., using `ts-loader` or `babel-loader` with TypeScript preset).
+    - Configure output paths for compiled JavaScript files (e.g., to a `dist/` directory).
+    - Handle copying static assets (`stats.html`, CSS, icons) to the output directory.
 3.  [x] **`src/background.ts` (Service Worker):**
-    *   Implement IndexedDB setup/connection (`src/db.ts` helper).
-    *   Implement URL normalization function.
-    *   Add listeners: `chrome.tabs.onUpdated`, `chrome.tabs.onActivated`, `chrome.windows.onFocusChanged`, `chrome.tabs.onRemoved`.
-    *   Implement logic to track the currently active/focused tab's URL.
-    *   Implement timer (`setInterval`) for periodic checks (every 1s for active, every 5s for total).
-    *   Inside timer:
-        *   Query all tabs (`chrome.tabs.query`).
-        *   Increment `activeSeconds` for the active/focused URL.
-        *   Increment `totalSeconds` for all open, tracked URLs.
-        *   Handle DB updates (read, increment, write).
-    *   Implement logic to trigger title fetching via `chrome.scripting.executeScript` when needed.
-    *   Implement DB error logging.
+    - Implement IndexedDB setup/connection (`src/db.ts` helper).
+    - Implement URL normalization function.
+    - Add listeners: `chrome.tabs.onUpdated`, `chrome.tabs.onActivated`, `chrome.windows.onFocusChanged`, `chrome.tabs.onRemoved`.
+    - Implement logic to track the currently active/focused tab's URL.
+    - Implement timer (`setInterval`) for periodic checks (every 1s for active, every 5s for total).
+    - Inside timer:
+        - Query all tabs (`chrome.tabs.query`).
+        - Increment `activeSeconds` for the active/focused URL.
+        - Increment `totalSeconds` for all open, tracked URLs.
+        - Handle DB updates (read, increment, write).
+    - Implement logic to trigger title fetching via `chrome.scripting.executeScript` when needed.
+    - Implement DB error logging.
 4.  [x] **`src/db.ts` (Helper Module):**
-    *   Encapsulate IndexedDB logic: opening the DB, creating the object store (`website_times` with `normalizedUrl` as keyPath), reading records, writing/updating records, deleting records/clearing the store.
-    *   Handle DB versions and upgrades if schema changes later.
-    *   Use TypeScript types for DB operations and records.
+    - Encapsulate IndexedDB logic: opening the DB, creating the object store (`website_times` with `normalizedUrl` as keyPath), reading records, writing/updating records, deleting records/clearing the store.
+    - Handle DB versions and upgrades if schema changes later.
+    - Use TypeScript types for DB operations and records.
 5.  [x] **`src/stats.html` & `src/stats.css`:**
-    *   Basic HTML structure for the page (title, table container, buttons).
-    *   Link the compiled JS output (e.g., `dist/stats.js`).
-    *   Link the CSS file (`dist/stats.css`).
-    *   Create `src/stats.css` for all styling rules.
+    - Basic HTML structure for the page (title, table container, buttons).
+    - Link the compiled JS output (e.g., `dist/stats.js`).
+    - Link the CSS file (`dist/stats.css`).
+    - Create `src/stats.css` for all styling rules.
 6.  [x] **`src/stats.ts` (for `stats.html`):**
-    *   On page load, connect to IndexedDB (`src/db.ts`).
-    *   Fetch all records from the `website_times` store.
-    *   Process data: aggregate by domain, format times (seconds to DD:HH:MM:SS).
-    *   Render the data table dynamically (handle expansion/collapse).
-    *   Implement client-side sorting for table columns.
-    *   Implement title truncation and hover/tooltip for full titles.
-    *   Implement CSV export functionality.
-    *   Implement "Clear All Data" button functionality (with confirmation dialog).
-    *   Check for and display DB error notification if needed.
+    - On page load, connect to IndexedDB (`src/db.ts`).
+    - Fetch all records from the `website_times` store.
+    - Process data: aggregate by domain, format times (seconds to DD:HH:MM:SS).
+    - Render the data table dynamically (handle expansion/collapse).
+    - Implement client-side sorting for table columns.
+    - Implement title truncation and hover/tooltip for full titles.
+    - Implement CSV export functionality.
+    - Implement "Clear All Data" button functionality (with confirmation dialog).
+    - Check for and display DB error notification if needed.
 7.  [x] **Utility Functions (`src/utils.ts`):**
-    *   Time formatting function (seconds to DD:HH:MM:SS).
-    *   URL normalization function (can be shared with background).
-    *   **Title Fetching Function (`getPageTitle`):**
+    - Time formatting function (seconds to DD:HH:MM:SS).
+    - URL normalization function (can be shared with background).
+    - **Title Fetching Function (`getPageTitle`):**
         - Fetches page title for a given tab using `chrome.scripting.executeScript`.
         - Falls back to tab URL if title is unavailable.
         - Handles errors gracefully with console logging.

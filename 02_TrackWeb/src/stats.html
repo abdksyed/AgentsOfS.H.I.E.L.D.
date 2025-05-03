@@ -7,14 +7,14 @@
     <link rel="stylesheet" href="stats.css">
 </head>
 <body>
-    <div id="error-notification" class="hidden"></div>
+    <div id="error-notification" class="hidden" role="alert" aria-live="assertive"></div>
     <div class="container">
         <h1>Web Time Tracker</h1>
         <div class="controls">
-            <button id="export-csv">Export CSV</button>
-            <button id="clear-data">Clear All Data</button>
+            <button id="export-csv" aria-label="Export data to CSV">Export CSV</button>
+            <button id="clear-data" aria-label="Clear all tracking data">Clear All Data</button>
         </div>
-        <table id="stats-table">
+        <table id="stats-table" aria-label="Website usage statistics">
             <thead>
                 <tr>
                     <th>Domain</th>
@@ -25,6 +25,7 @@
             <tbody></tbody>
         </table>
     </div>
+    <div id="loading-indicator" aria-live="polite" style="display: none;">Loading...</div>
     <script src="stats.js"></script>
 </body>
 </html> 

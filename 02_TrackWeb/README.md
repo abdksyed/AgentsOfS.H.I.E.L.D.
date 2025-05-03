@@ -5,7 +5,7 @@
 A simple Chrome extension designed to track the time spent on websites. It focuses on simplicity and long-term aggregation of time data rather than detailed date-based analysis.
 
 **Core Functionality:**
-- Tracks the total time tabs are open and the active time spent viewing them.
+- Tracks the total time tabs are open, and the active time spent viewing them.
 - Normalizes URLs to aggregate time against base paths.
 - Captures and aggregates page titles for tracked URLs.
 - Stores data locally using IndexedDB.
@@ -41,14 +41,13 @@ Once installed, the extension starts tracking time automatically for websites yo
 
 Click the extension icon in the Chrome toolbar. This will open the page `stats.html` as a popup.
 
-### Stats Page Features:
+### Stats Page Features
 
 - **Aggregated View:** By default, the data is aggregated by domain.
 - **Expandable Details:** Click on a domain row to expand it and see the time spent on individual normalized URLs within that domain.
-- **Sorting:** (NOT IMPLEMENTED) The table columns should be sortable (though this might require further implementation in `stats.ts`).
 - **Copy URL:** In the expanded view, click on a truncated title/URL cell to copy the full normalized URL to your clipboard.
 
-### Data Display Columns:
+### Data Display Columns
 
 **Domain View:**
 

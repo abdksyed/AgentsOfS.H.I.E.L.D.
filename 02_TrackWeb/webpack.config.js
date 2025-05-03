@@ -2,6 +2,7 @@ const path = require('path');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = {
+  mode: process.env.NODE_ENV || 'production',
   entry: {
     background: './src/background.ts',
     stats: './src/stats.ts',
