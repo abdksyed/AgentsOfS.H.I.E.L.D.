@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Time Tracker - Stats</title>
+    <link rel="stylesheet" href="stats.css">
+</head>
+<body>
+    <div id="error-notification" class="hidden" role="alert" aria-live="assertive"></div>
+    <div class="container">
+        <h1>Web Time Tracker</h1>
+        <div class="controls">
+            <button id="export-csv" aria-label="Export data to CSV">Export CSV</button>
+            <button id="clear-data" aria-label="Clear all tracking data">Clear All Data</button>
+        </div>
+        <table id="stats-table" aria-label="Website usage statistics">
+            <thead>
+                <tr>
+                    <th>Domain</th>
+                    <th>Active Time</th>
+                    <th>Total Time</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    <div id="loading-indicator" aria-live="polite" style="display: none;">Loading...</div>
+    <script src="stats.js"></script>
+</body>
+</html> 

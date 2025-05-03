@@ -1,0 +1,24 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Create a Checklist of NitPick Issues and Plan to resolve them
+
+For the repo `AgentsOfS.H.I.E.L.D.` owned by `abdksyed` get the nitpick comments for the PR given by user.
+
+1. **Step 1:** Fetch the review comments from PR #X
+    Use `gh api` commands to get the PR review comments and save the recent comment in `review/code_review.json` file    
+    Example: gh api repos/abdksyed/AgentsOfS.H.I.E.L.D./pulls/8/reviews --paginate > review/review_comment.json for PR number 8
+
+2. **Step 2:** Extract path, line, and comment body into a readable format
+    Use `jq` command to convert the JSON file to text file by extracting review comments and ignoring outdated/resolved comments.
+    Example: jq -r '[.[] | select(.user.login == "coderabbitai[bot]" and .body != null)] | sort_by(.submitted_at) | last.body | @json' review/review_comment.json | sed 's/^"\(.*\)"$/\1/' > review/review_comment.txt
+
+3. **Step 3:** Read the file [review_comment.txt](mdc:review/review_comment.txt) completely and carefullly review each nitpick, extract the main heading for each of them and the related content and code block for each nitpick. There could be suggested code, suggested changes as comments etc. Review those solutions or comments provided. Think and create a solution to the issues listed.
+
+4. **Step 4:** Create the checklist of the issues in [nitpicks_plan.md](mdc:review/nitpicks_plan.md) file, and then create a plan on how to resolve the issues mentioning the above solutions.
+
+DO NOT STOP UNTIL YOU HAVE CREATED the @plan.md file and have created the detailed plan.
+
+5. **Step 5:** Check if the [nitpicks_plan.md](mdc:review/nitpicks_plan.md) is having the plan the issues present in the [review_comment.txt](mdc:review/review_comment.txt) are matching the issues in [nitpicks_plan.md](mdc:review/nitpicks_plan.md)
