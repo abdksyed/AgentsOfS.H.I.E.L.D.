@@ -1,0 +1,12 @@
+[project]
+name = "omniva-py"
+version = "0.1.0"
+description = "Backend for Omniva - The Omni Iva, who knoes everything, serves quietly"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiosqlite>=0.21.0",
+    "fastapi[standard]>=0.115.12",
+    "pydantic>=2.11.4",
+    "uvicorn[standard]>=0.34.2",
+]
