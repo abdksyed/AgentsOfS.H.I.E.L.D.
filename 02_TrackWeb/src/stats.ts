@@ -1,12 +1,28 @@
 import { getAllEntries, clearAllEntries, WebsiteTimeEntry } from './db';
 import { formatTime } from './utils';
 
-// DOM Elements
-const errorNotification = document.getElementById('error-notification') as HTMLDivElement;
-const exportCsvButton = document.getElementById('export-csv') as HTMLButtonElement;
-const clearDataButton = document.getElementById('clear-data') as HTMLButtonElement;
-const statsTable = document.getElementById('stats-table') as HTMLTableElement;
-const tableBody = statsTable.querySelector('tbody') as HTMLTableSectionElement;
+// DOM Elements with proper null checks
+function getRequiredElement<T extends HTMLElement>(id: string): T {
+    const element = document.getElementById(id) as T | null;
+    if (!element) {
+        console.error(`Required DOM element not found: ${id}`);
+        throw new Error(`Required DOM element not found: ${id}`);
+    }
+    return element;
+}
+
+const errorNotification = getRequiredElement<HTMLDivElement>('error-notification');
+const exportCsvButton = getRequiredElement<HTMLButtonElement>('export-csv');
+const clearDataButton = getRequiredElement<HTMLButtonElement>('clear-data');
+const statsTable = getRequiredElement<HTMLTableElement>('stats-table');
+
+const tableBody = statsTable.querySelector('tbody');
+if (!tableBody) {
+    console.error('Table body element not found');
+    throw new Error('Table body element not found');
+}
+// TypeScript assertion after null check
+const safeTableBody = tableBody as HTMLTableSectionElement;
 
 // State
 let allEntries: WebsiteTimeEntry[] = [];
@@ -28,12 +44,12 @@ async function init() {
 
 // Render the table with aggregated data
 function renderTable() {
-    tableBody.innerHTML = '';
+    safeTableBody.innerHTML = '';
 
     if (allEntries.length === 0) {
         const row = document.createElement('tr');
         row.innerHTML = '<td colspan="3">No data available</td>';
-        tableBody.appendChild(row);
+        safeTableBody.appendChild(row);
         return;
     }
 
@@ -45,11 +61,10 @@ function renderTable() {
             domainMap.set(entry.domain, { active: 0, total: 0, urls: [] });
         }
         const domainData = domainMap.get(entry.domain);
-        if (domainData) {
-            domainData.active += entry.activeSeconds;
-            domainData.total += entry.totalSeconds;
-            domainData.urls.push(entry);
-        }
+        // domainData will always exist after the check and set above
+        domainData!.active += entry.activeSeconds;
+        domainData!.total += entry.totalSeconds;
+        domainData!.urls.push(entry);
     });
 
     // Sort domains by total time (descending)
@@ -64,12 +79,12 @@ function renderTable() {
             <td>${formatTime(data.active)}</td>
             <td>${formatTime(data.total)}</td>
         `;
-        tableBody.appendChild(domainRow);
+        safeTableBody.appendChild(domainRow);
 
         // Add click handler for expansion
         domainRow.addEventListener('click', () => {
             const nextRow = domainRow.nextElementSibling;
-            if (nextRow && nextRow.classList.contains('url-details')) {
+            if (nextRow?.classList.contains('url-details')) {
                 nextRow.classList.toggle('show');
             } else {
                 renderUrlDetails(domainRow, data.urls);
@@ -103,7 +118,11 @@ function renderUrlDetails(domainRow: HTMLTableRowElement, urls: WebsiteTimeEntry
         <tbody></tbody>
     `;
     
-    const innerTableBody = innerTable.querySelector('tbody')!;
+    const innerTableBody = innerTable.querySelector('tbody');
+    if (!innerTableBody) {
+        console.error('Inner table body not found');
+        return;
+    }
     
     sortedUrls.forEach(urlEntry => {
         const urlRow = document.createElement('tr');
@@ -124,7 +143,7 @@ function renderUrlDetails(domainRow: HTMLTableRowElement, urls: WebsiteTimeEntry
                     const originalText = titleCell.textContent;
                     titleCell.textContent = 'Copied!';
                     setTimeout(() => {
-                        titleCell.textContent = originalText;
+                        titleCell.textContent = originalText || '';
                     }, 2000); // Change back after 2 seconds
                     console.log('URL copied to clipboard');
                 } catch (err) {
@@ -137,7 +156,7 @@ function renderUrlDetails(domainRow: HTMLTableRowElement, urls: WebsiteTimeEntry
     
     detailsCell.appendChild(innerTable);
     detailsRow.appendChild(detailsCell);
-    domainRow.parentNode!.insertBefore(detailsRow, domainRow.nextSibling);
+    domainRow.parentNode?.insertBefore(detailsRow, domainRow.nextSibling);
 }
 
 // Truncate text with ellipsis
@@ -164,7 +183,9 @@ async function exportToCsv() {
         
         // CSV rows
         entries.forEach(entry => {
-            csv += `"${entry.domain}","${entry.normalizedUrl}","${entry.titles}",${entry.activeSeconds},${entry.totalSeconds}\n`;
+            // Properly escape fields containing quotes by doubling the quotes
+            const escapeCsv = (str: string) => `"${str.replace(/"/g, '""')}"`;
+            csv += `${escapeCsv(entry.domain)},${escapeCsv(entry.normalizedUrl)},${escapeCsv(entry.titles)},${entry.activeSeconds},${entry.totalSeconds}\n`;
         });
 
         // Create download link
@@ -210,6 +231,10 @@ async function clearData() {
 
 // Show error notification
 function showError(message: string) {
+    if (!errorNotification) {
+        console.error('Error notification element not found:', message);
+        return;
+    }
     errorNotification.textContent = message;
     errorNotification.classList.remove('hidden');
     setTimeout(() => {

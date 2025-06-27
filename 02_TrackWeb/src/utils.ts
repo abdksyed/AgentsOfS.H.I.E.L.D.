@@ -12,8 +12,8 @@ export function normalizeUrl(url: string): string {
     return urlObject.toString();
   } catch (e) {
     console.error(`Failed to normalize URL: ${url}`, e);
-    // Return the original URL or a specific error indicator if normalization fails
-    return `https://${url}`;
+    // Return a consistent error indicator or the original URL
+    return url;
   }
 }
 
@@ -23,17 +23,18 @@ export function normalizeUrl(url: string): string {
  * @returns Formatted time string.
  */
 export function formatTime(totalSeconds: number): string {
+  let seconds = totalSeconds;
   if (totalSeconds < 0) {
-    totalSeconds = 0;
+    seconds = 0;
   }
-  const days = Math.floor(totalSeconds / (3600 * 24));
-  const hours = Math.floor((totalSeconds % (3600 * 24)) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = Math.floor(totalSeconds % 60);
+  const days = Math.floor(seconds / (3600 * 24));
+  const hours = Math.floor((seconds % (3600 * 24)) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
 
   const pad = (num: number) => num.toString().padStart(2, '0');
 
-  return `${pad(days)}:${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  return `${pad(days)}:${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
 }
 
 /**
@@ -73,7 +74,13 @@ export async function getPageTitle(tabId: number): Promise<string> {
  * @returns The extracted domain or 'Unknown Domain'.
  */
 export function extractDomainFromUrl(url: string): string {
-  const domainMatch = url.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?#]+)/i);
-  return domainMatch ? domainMatch[1] : 'Unknown Domain';
+  try {
+    // Use URL API for more robust parsing
+    const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return urlObj.hostname.replace(/^www\./, '');
+  } catch (e) {
+    console.error(`Failed to extract domain from URL: ${url}`, e);
+    return 'Unknown Domain';
+  }
 }
 

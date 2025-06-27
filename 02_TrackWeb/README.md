@@ -5,6 +5,7 @@
 A simple Chrome extension designed to track the time spent on websites. It focuses on simplicity and long-term aggregation of time data rather than detailed date-based analysis.
 
 **Core Functionality:**
+
 - Tracks the total time tabs are open, and the active time spent viewing them.
 - Normalizes URLs to aggregate time against base paths.
 - Captures and aggregates page titles for tracked URLs.
@@ -15,6 +16,7 @@ A simple Chrome extension designed to track the time spent on websites. It focus
 ## Getting Started
 
 To use or develop this extension, you will need:
+
 - Node.js and npm installed.
 - A modern web browser (like Google Chrome, Edge, or Brave) that supports Chrome Extension Manifest V3.
 
@@ -26,7 +28,7 @@ This extension is not available on the Chrome Web Store. To install it, you need
 
 1.  Open your Chrome browser.
 2.  Go to the extensions page by typing `chrome://extensions/` in the address bar or by clicking the three vertical dots (⋮) > "Extensions" > "Manage Extensions".
-3.  Toggle on the **Developer mode** switch, usually located in the top right corner.
+3.  Toggle on the **Developer mode** switch, usually located in the top-right corner.
 4.  Click the **Load unpacked** button that appears on the top left.
 5.  Navigate to the `02_TrackWeb` directory that contains the `manifest.json` file.
 6.  Select the `02_TrackWeb` folder.
@@ -101,4 +103,4 @@ After building, the necessary files will be in the `dist` directory, which is wh
 - Performance optimizations for the background timer.
 - More granular data clearing options.
 - Basic filtering or search on the stats page.
-- Revisit date-based analysis if needed (requires schema changes). 
+- Revisit date-based analysis if needed (requires schema changes).

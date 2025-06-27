@@ -32,7 +32,7 @@ export async function openDatabase(): Promise<IDBPDatabase<WebTimeTrackerDBSchem
   db = await openDB<WebTimeTrackerDBSchema>(DB_NAME, DB_VERSION, {
     upgrade(db: IDBPDatabase<WebTimeTrackerDBSchema>, oldVersion: number, newVersion: number, transaction: IDBPTransaction<WebTimeTrackerDBSchema, 'website_times'[], 'versionchange'>) {
       switch (oldVersion) {
-        case 0:
+        case 0: {
           // Migration from no database to version 1
           db.createObjectStore(STORE_NAME, {
             keyPath: 'normalizedUrl',
@@ -40,20 +40,23 @@ export async function openDatabase(): Promise<IDBPDatabase<WebTimeTrackerDBSchem
           // You might want to create indexes here if needed for performance on queries other than keyPath
           const store = transaction.objectStore(STORE_NAME);
           store.createIndex('domain', 'domain');
-          // Fallthrough for subsequent migrations
+          break;
+        }
 
         // Add more cases for future schema migrations
-        // case 1:
+        // case 1: {
         //   // Migration from version 1 to version 2
         //   // Example: Add a new object store or modify existing one
         //   // db.createObjectStore('new_store', { keyPath: 'id' });
-        //   // Fallthrough
+        //   break;
+        // }
 
-        // case 2:
+        // case 2: {
         //   // Migration from version 2 to version 3
         //   // Example: Add an index to an existing object store
         //   // transaction.objectStore(STORE_NAME).createIndex('new_index', 'new_property');
-        //   // Fallthrough
+        //   break;
+        // }
 
         default:
           // If oldVersion is greater than or equal to the current version (DB_VERSION),
