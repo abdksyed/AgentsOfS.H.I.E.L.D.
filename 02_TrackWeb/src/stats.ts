@@ -61,10 +61,11 @@ function renderTable() {
             domainMap.set(entry.domain, { active: 0, total: 0, urls: [] });
         }
         const domainData = domainMap.get(entry.domain);
-        // domainData will always exist after the check and set above
-        domainData!.active += entry.activeSeconds;
-        domainData!.total += entry.totalSeconds;
-        domainData!.urls.push(entry);
+        if (domainData) {
+            domainData.active += entry.activeSeconds;
+            domainData.total += entry.totalSeconds;
+            domainData.urls.push(entry);
+        }
     });
 
     // Sort domains by total time (descending)

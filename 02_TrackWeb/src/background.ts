@@ -94,39 +94,36 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // Helper function to update time in IndexedDB
 async function updateTime(normalizedUrl: string, domain: string, timeInSeconds: { active?: number; total?: number }) {
   try {
-    const db = await openDatabase(); // Assuming openDatabase is available from db.ts
+    const db = await openDatabase();
     const tx = db.transaction('website_times', 'readwrite');
     const store = tx.objectStore('website_times');
 
-    // Use get and put within the same transaction for atomicity
-    // This addresses Issue 2: Race condition
-    const entry = await store.get(normalizedUrl);
-
-    if (entry) {
-      if (timeInSeconds.active) {
-        entry.activeSeconds = (entry.activeSeconds || 0) + timeInSeconds.active;
-      }
-      if (timeInSeconds.total) {
-        entry.totalSeconds = (entry.totalSeconds || 0) + timeInSeconds.total;
-      }
-      // Ensure titles is initialized if it's a new entry from total time timer before title fetching
-      if (entry.titles === undefined) {
+    // Use promise chaining without intermediate awaits to prevent race conditions
+    return store.get(normalizedUrl).then((entry) => {
+      if (entry) {
+        if (timeInSeconds.active) {
+          entry.activeSeconds = (entry.activeSeconds || 0) + timeInSeconds.active;
+        }
+        if (timeInSeconds.total) {
+          entry.totalSeconds = (entry.totalSeconds || 0) + timeInSeconds.total;
+        }
+        // Ensure titles is initialized if it's a new entry from total time timer before title fetching
+        if (entry.titles === undefined) {
           entry.titles = '';
+        }
+        return store.put(entry);
+      } else {
+        // Create a new entry if it doesn't exist
+        const newEntry: WebsiteTimeEntry = {
+          normalizedUrl: normalizedUrl,
+          domain: domain,
+          titles: '', // Initialize titles to empty, will be fetched later by onUpdated/onActivated
+          activeSeconds: timeInSeconds.active || 0,
+          totalSeconds: timeInSeconds.total || 0,
+        };
+        return store.add(newEntry);
       }
-      await store.put(entry);
-    } else {
-      // Create a new entry if it doesn't exist
-      const newEntry: WebsiteTimeEntry = {
-        normalizedUrl: normalizedUrl,
-        domain: domain,
-        titles: '', // Initialize titles to empty, will be fetched later by onUpdated/onActivated
-        activeSeconds: timeInSeconds.active || 0,
-        totalSeconds: timeInSeconds.total || 0,
-      };
-      await store.add(newEntry);
-    }
-
-    await tx.done; // Wait for the transaction to complete with promised IndexedDB
+    }).then(() => tx.done);
   } catch (error) {
     console.error(`Error updating time for ${normalizedUrl}:`, error);
     // TODO: Implement a mechanism to notify the user about storage errors
@@ -176,7 +173,7 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
   } else if (activeTabId !== null) {
     // A window is focused, check if the previously active tab is still active in a focused window
      chrome.tabs.query({ active: true, windowId: windowId }, async (tabs) => {
-       if (tabs && tabs[0] && tabs[0].id === activeTabId && tabs[0].url && !isUrlIgnored(tabs[0].url)) {
+       if (tabs?.[0]?.id === activeTabId && tabs?.[0]?.url && !isUrlIgnored(tabs[0].url)) {
                   // If the previously active tab is still active in the focused window, ensure the alarm is running
         scheduleActiveAlarm();
        } else {
