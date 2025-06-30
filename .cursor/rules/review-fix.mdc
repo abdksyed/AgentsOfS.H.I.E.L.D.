@@ -9,7 +9,7 @@ For the repo `AgentsOfS.H.I.E.L.D.` owned by `abdksyed` get the review comments 
 
 1. **Step 1:** Fetch the review comments from PR #X
     Use `gh api` commands to get the PR review comments and save the recent comment in `review/code_review.json` file    
-    Example: `gh api repos/apple-boy/AgentsOfP.O.T/pulls/8/comments --paginate > review/code_review.json` for PR number 8
+    Example: `gh api repos/abdksyed/AgentsOfS.H.I.E.L.D./pulls/8/comments --paginate > review/code_review.json` for PR number 8
 
 2. **Step 2:** Extract path, line, and comment body into a readable format
     Use `jq` command to convert the JSON file to text file by extracting review comments and ignoring outdated/resolved comments.
